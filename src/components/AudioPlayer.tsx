@@ -1,3 +1,4 @@
+import { SharedAudioPlayback } from "../utils/sharedAudioPlayback";
 import { TapeDeck } from './TapeDeck';
 import type { AudioTheme } from '../utils/audioTheme';
 import { useState, useRef, useCallback, useEffect } from "react";
@@ -67,12 +68,6 @@ function labelFontSize(name: string): number {
   return 6.5;
 }
 
-/** Project a playing media position onto this client's wall clock. */
-function currentSyncedTime(time: number, sentAt?: number): number {
-  if (!sentAt) return time;
-  return time + Math.max(0, Date.now() - sentAt) / 1000;
-}
-
 export function AudioPlayer({
   id,
   dataConnection,
@@ -117,8 +112,9 @@ export function AudioPlayer({
 }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const objectUrlRef = useRef<string | null>(null);
-  const syncUntilRef = useRef(0);
-  const sendSyncRef = useRef<(message: SyncMessage) => void>(() => {});
+  const [audioBlocked, setAudioBlocked] = useState(false);
+  const playbackRef = useRef<SharedAudioPlayback | null>(null);
+  if (!playbackRef.current) playbackRef.current = new SharedAudioPlayback(() => audioRef.current, setAudioBlocked);
 
   const [fileName, setFileName] = useState<string | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -140,30 +136,12 @@ export function AudioPlayer({
         return;
       if (message.id !== id) return;
 
-      const audio = audioRef.current;
-      if (!audio || !audio.src) return;
-      syncUntilRef.current = Date.now() + 500;
-      const requestedTime =
-        message.type === "audio-play" ||
-        (message.type === "audio-seek" && message.playing)
-          ? currentSyncedTime(message.time, message.at)
-          : message.time;
-      audio.currentTime = Math.max(
-        0,
-        Math.min(
-          requestedTime,
-          Number.isFinite(audio.duration) ? audio.duration : requestedTime,
-        ),
-      );
-      setCurrentTime(audio.currentTime);
-
-      if (message.type === "audio-play") {
-        audio.play().catch(() => {
-          // Browser autoplay policy may require a local interaction first.
-        });
-      } else if (message.type === "audio-pause") {
-        audio.pause();
-      }
+      initialPlaybackRef.current = undefined;
+      playbackRef.current!.set({
+        time: message.time,
+        at: message.at,
+        playing: message.type === "audio-play" || (message.type === "audio-seek" && message.playing === true),
+      });
     },
     [id],
   );
@@ -172,7 +150,6 @@ export function AudioPlayer({
     dataConnection,
     onRemoteSync: handleRemoteSync,
   });
-  sendSyncRef.current = sendSync;
 
   const loadedFileRef = useRef<File | null>(null);
 
@@ -184,13 +161,6 @@ export function AudioPlayer({
     objectUrlRef.current = url;
     audioRef.current.src = url;
     audioRef.current.load();
-    audioRef.current.addEventListener("loadedmetadata", () => {
-      const saved = initialPlaybackRef.current;
-      if (!saved || !audioRef.current) return;
-      audioRef.current.currentTime = Math.min(saved.time, audioRef.current.duration || saved.time);
-      if (saved.playing) void audioRef.current.play().catch(() => {});
-      initialPlaybackRef.current = undefined;
-    }, { once: true });
     const name = file.name.replace(/\.[^.]+$/, "");
     setFileName(name);
     onTrackChange?.(name);
@@ -213,6 +183,7 @@ export function AudioPlayer({
     const file = e.target.files?.[0];
     if (!file) return;
     loadedFileRef.current = file;
+    playbackRef.current!.reset();
     loadFile(file);
     onFileChosen?.(file);
   };
@@ -238,6 +209,7 @@ export function AudioPlayer({
     if (!file) return;
     if (!file.type.match(/audio\/(mpeg|wav|ogg|flac|aac|mp4)/)) return;
     loadedFileRef.current = file;
+    playbackRef.current!.reset();
     loadFile(file);
     onFileChosen?.(file);
   };
@@ -250,19 +222,22 @@ export function AudioPlayer({
   const play = () => {
     const audio = audioRef.current;
     if (!audio || !fileName) return;
-    audio.play().catch(() => {});
+    const message = { type: "audio-play" as const, id, time: audio.ended ? 0 : audio.currentTime, at: Date.now() };
+    playbackRef.current!.set({ ...message, playing: true });
+    sendSync(message);
   };
   const pause = () => {
-    audioRef.current?.pause();
+    const time = audioRef.current?.currentTime ?? 0;
+    playbackRef.current!.set({ time, playing: false });
+    sendSync({ type: "audio-pause", id, time, at: Date.now() });
   };
   const stop = () => {
     const audio = audioRef.current;
     if (!audio || !fileName) return;
-    // pause() syncs itself via the pause event; the rewind needs its own send
-    audio.pause();
+    playbackRef.current!.set({ time: 0, playing: false });
     audio.currentTime = 0;
     setCurrentTime(0);
-    sendSync({ type: "audio-seek", id, time: 0 });
+    sendSync({ type: "audio-seek", id, time: 0, playing: false, at: Date.now() });
   };
   const transport: "play" | "pause" | "stop" = isPlaying
     ? "play"
@@ -276,6 +251,7 @@ export function AudioPlayer({
     t = Math.max(0, Math.min(t, Number.isFinite(audio.duration) ? audio.duration : 0));
     audio.currentTime = t;
     setCurrentTime(t);
+    playbackRef.current!.set({ time: t, at: Date.now(), playing: !audio.paused });
     sendSync({
       type: "audio-seek",
       id,
@@ -312,32 +288,20 @@ export function AudioPlayer({
     const audio = audioRef.current;
     if (!audio) return;
 
-    const onPlay = () => {
-      setIsPlaying(true);
-      if (Date.now() >= syncUntilRef.current) {
-        sendSyncRef.current({
-          type: "audio-play",
-          id,
-          time: audio.currentTime,
-          at: Date.now(),
-        });
-      }
-    };
-    const onPause = () => {
-      setIsPlaying(false);
-      if (Date.now() >= syncUntilRef.current) {
-        sendSyncRef.current({
-          type: "audio-pause",
-          id,
-          time: audio.currentTime,
-          at: Date.now(),
-        });
-      }
+    const onPlay = () => setIsPlaying(true);
+    const onPause = () => setIsPlaying(false);
+    const onLoadedMetadata = () => {
+      const saved = initialPlaybackRef.current;
+      if (saved) {
+        playbackRef.current!.set(saved);
+        initialPlaybackRef.current = undefined;
+      } else playbackRef.current!.apply();
     };
     const onEnded = () => setIsPlaying(false);
     const onTimeUpdate = () => setCurrentTime(audio.currentTime);
     const onDurationChange = () => setDuration(audio.duration);
 
+    audio.addEventListener("loadedmetadata", onLoadedMetadata);
     audio.addEventListener("play", onPlay);
     audio.addEventListener("pause", onPause);
     audio.addEventListener("ended", onEnded);
@@ -345,6 +309,7 @@ export function AudioPlayer({
     audio.addEventListener("durationchange", onDurationChange);
 
     return () => {
+      audio.removeEventListener("loadedmetadata", onLoadedMetadata);
       audio.removeEventListener("play", onPlay);
       audio.removeEventListener("pause", onPause);
       audio.removeEventListener("ended", onEnded);
@@ -366,6 +331,8 @@ export function AudioPlayer({
     <div data-audio-theme={theme} className="flex flex-col h-full bg-zinc-900 border border-zinc-700 rounded-2xl overflow-hidden">
       {/* Hidden audio element */}
       <audio ref={audioRef} preload="metadata" />
+
+      {audioBlocked && <button className="no-drag px-3 py-2 text-sm text-amber-200" onClick={() => playbackRef.current!.apply()}>Enable audio to hear shared playback</button>}
 
       {/* Header / drag handle */}
       <div className="drag-handle flex items-center justify-between px-3 py-2 bg-zinc-800 cursor-grab active:cursor-grabbing select-none shrink-0">
