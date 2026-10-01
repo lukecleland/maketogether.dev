@@ -357,7 +357,9 @@ export function DawWidget({
     const transport = transportRef.current;
     const ctx = contextRef.current;
     if (!transport.active || !ctx) return;
-    const position = transport.offset + ctx.currentTime - transport.at;
+    const position = remoteActivityRef.current?.mode === "playing"
+      ? remotePosition(remoteActivityRef.current)
+      : transport.offset + ctx.currentTime - transport.at;
     sourcesRef.current.forEach((source) => {
       try {
         source.stop();
@@ -374,7 +376,7 @@ export function DawWidget({
     );
     transport.offset = position;
     transport.at = ctx.currentTime;
-  }, [tracks, buffers]);
+  }, [tracks, buffers, remotePosition]);
 
   // One animation clock owns the visible playhead. Network snapshots and audio
   // scheduling must not write older positions over an already-rendered frame.
@@ -601,16 +603,18 @@ export function DawWidget({
         !share && remoteActivityRef.current?.mode === "playing"
           ? remotePosition(remoteActivityRef.current)
           : position;
-      if (!share && current >= duration) {
+      const currentTracks = tracksRef.current;
+      const currentDuration = dawEnd(currentTracks);
+      if (!share && current >= currentDuration) {
         stopSources();
         transportRef.current.active = false;
         return;
       }
-      const offset = Math.max(0, current >= duration ? 0 : current);
+      const offset = Math.max(0, current >= currentDuration ? 0 : current);
       stopSources();
       sourcesRef.current = scheduleDaw(
         ctx,
-        tracks,
+        currentTracks,
         buffersRef.current,
         offset,
         ctx.currentTime,
@@ -2326,7 +2330,15 @@ export function DawWidget({
             (playing || recording || remoteVoicesRef.current.size > 0) && (
               <button
                 className={`${button} mr-2`}
-                onClick={() => void context().resume()}
+                onClick={() => {
+                  // Resume inside the gesture, then rebuild from the shared clock.
+                  const ctx = context();
+                  void ctx.resume().then(() => {
+                    const activity = remoteActivityRef.current;
+                    if (activity?.mode === "playing")
+                      void playFrom(remotePosition(activity), false);
+                  }).catch(() => setError("Audio playback could not start. Try enabling audio again."));
+                }}
               >
                 Enable audio
               </button>
