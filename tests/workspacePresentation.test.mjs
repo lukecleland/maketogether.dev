@@ -8,29 +8,25 @@ function load(path, imports = {}) {
   vm.runInNewContext(ts.transpileModule(readFileSync(new URL(`../${path}`, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, scope);
   return scope.exports;
 }
-test('landing words shuffle equally without repeating make or splitting the lyric', () => {
+test('landing sequence shuffles on load, returns to make every six displays, and preserves the lyric', () => {
   const { buildBrandWords, BRAND_WORD_DURATION } = load('src/utils/brandWords.ts');
   assert.equal(BRAND_WORD_DURATION, 2600);
   const expected = ['make','work','watch','create','record','jam','learn','sing','laugh','party','sketch','build','develop','write','compose','code','grow','produce','decide','teach','come','talk','stop','collaborate','listen'].sort();
   let seed = 12345;
   const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 2 ** 32; };
-  let previous;
   const orders = new Set();
-  for (let cycle = 0; cycle < 100; cycle++) {
-    const words = Array.from(buildBrandWords(random, previous));
-    assert.deepEqual([...words].sort(), expected);
-    assert.equal(new Set(words).size, words.length);
+  for (let load = 0; load < 100; load++) {
+    const words = Array.from(buildBrandWords(random));
+    assert.equal(words.length, 30);
+    assert.deepEqual([...new Set(words)].sort(), expected);
+    for (let index = 0; index < words.length * 3; index++) {
+      assert.equal(words[index % words.length] === 'make', index % 6 === 0);
+    }
     const start = words.indexOf('stop');
     assert.deepEqual(words.slice(start, start + 3), ['stop', 'collaborate', 'listen']);
-    assert.notEqual(words[0], previous);
-    previous = words.at(-1);
     orders.add(words.join(','));
   }
-  assert.ok(orders.size > 90, 'each cycle should get a fresh random order');
-  const unchanged = () => 0.999;
-  const normal = Array.from(buildBrandWords(unchanged));
-  assert.equal(normal[0], 'make');
-  assert.notEqual(buildBrandWords(unchanged, 'make')[0], 'make');
+  assert.ok(orders.size > 90, 'separate page loads should receive different sequences');
 });
 test('overview fits mixed panels in desktop/mobile slots without changing their geometry', () => {
   const { layoutOverview } = load('src/utils/panelOverview.ts');
