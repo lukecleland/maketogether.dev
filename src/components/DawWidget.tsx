@@ -2,6 +2,7 @@ import { Toast } from './Toast';
 import { useDawSync, type DawVoice } from "../hooks/useDawSync";
 import type { RoomDataConnection } from "../hooks/usePeer";
 import { dawActivityPosition, type DawActivity } from "../utils/dawSync";
+import { createDawAudioContext, dawAudioNeedsGesture, resumeDawAudio } from '../utils/dawAudio';
 import { DawCreateTrackDialog } from "./DawCreateTrackDialog";
 import { DawWaveform } from "./DawWaveform";
 import { DawInstrument } from "./DawInstrument";
@@ -226,13 +227,13 @@ export function DawWidget({
   );
 
   const context = () => {
-    if (!contextRef.current) {
-      const ctx = new AudioContext();
+    if (!contextRef.current || contextRef.current.state === 'closed') {
+      const ctx = createDawAudioContext();
       contextRef.current = ctx;
       ctx.onstatechange = () => {
-        if (aliveRef.current) setAudioBlocked(ctx.state === "suspended");
+        if (aliveRef.current) setAudioBlocked(dawAudioNeedsGesture(ctx));
       };
-      setAudioBlocked(ctx.state === "suspended");
+      setAudioBlocked(dawAudioNeedsGesture(ctx));
     }
     return contextRef.current;
   };
@@ -590,8 +591,12 @@ export function DawWidget({
     const request = ++transportRequestRef.current;
     try {
       const ctx = context();
-      await ctx.resume();
+      await resumeDawAudio(ctx, share);
       if (!aliveRef.current || request !== transportRequestRef.current) return;
+      if (dawAudioNeedsGesture(ctx)) {
+        setAudioBlocked(true);
+        return;
+      }
       const current =
         !share && remoteActivityRef.current?.mode === "playing"
           ? remotePosition(remoteActivityRef.current)
@@ -625,6 +630,26 @@ export function DawWidget({
         setError("Audio playback could not start. Try pressing Play again.");
     }
   };
+
+  const recoverAudio = useEffectEvent(() => {
+    const ctx = contextRef.current;
+    if (!ctx || document.visibilityState === 'hidden' || !dawAudioNeedsGesture(ctx)) return;
+    void resumeDawAudio(ctx).then(() => {
+      if (!aliveRef.current || dawAudioNeedsGesture(ctx)) return;
+      const activity = remoteActivityRef.current;
+      if (activity?.mode === 'playing') void playFrom(remotePosition(activity), false);
+      else if (transportRef.current.active) void playFrom(currentPosition(), false);
+    }).catch(() => { if (aliveRef.current) setAudioBlocked(true); });
+  });
+  useEffect(() => {
+    const recover = () => recoverAudio();
+    document.addEventListener('visibilitychange', recover);
+    window.addEventListener('focus', recover);
+    return () => {
+      document.removeEventListener('visibilitychange', recover);
+      window.removeEventListener('focus', recover);
+    };
+  }, []);
 
   const noteOff = (pitch: number) => {
     const node = instrumentNotes.current.get(pitch);
@@ -665,7 +690,7 @@ export function DawWidget({
     )
       return;
     const ctx = context();
-    void ctx.resume();
+    void resumeDawAudio(ctx, true).catch(() => setAudioBlocked(true));
     instrumentNotes.current.set(
       pitch,
       scheduleDawNote(
@@ -852,6 +877,8 @@ export function DawWidget({
         throw new Error(
           "Microphone recording is not available in this browser. You can still add audio files.",
         );
+      const ctx = context();
+      const audioReady = resumeDawAudio(ctx, true).catch(() => setAudioBlocked(true));
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: false,
@@ -864,12 +891,12 @@ export function DawWidget({
         return;
       }
       micRef.current = stream;
-      const ctx = context();
-      await ctx.resume();
+      await audioReady;
       if (!aliveRef.current || request !== transportRequestRef.current) {
         stream.getTracks().forEach((t) => t.stop());
         return;
       }
+      if (dawAudioNeedsGesture(ctx)) throw new Error('Tap Enable audio, then try recording again.');
       const target = selected
         ? tracksRef.current.find((t) => t.id === selected && !t.deleted)
         : newTrack();
@@ -991,7 +1018,7 @@ export function DawWidget({
       const track = audible.find((t) => t.id === voice.trackId);
       if (!track || remoteVoicesRef.current.has(key)) continue;
       const ctx = context();
-      void ctx.resume();
+      void resumeDawAudio(ctx).catch(() => setAudioBlocked(true));
       remoteVoicesRef.current.set(
         key,
         scheduleDawNote(
@@ -2354,17 +2381,21 @@ export function DawWidget({
           />
         )}
         <div className="shrink-0 border-t border-zinc-800 px-3 py-1.5 text-[10px] text-zinc-500">
-          {audioBlocked &&
-            (playing || recording || remoteVoicesRef.current.size > 0) && (
+          {audioBlocked && (
               <button
                 className={`${button} mr-2`}
                 onClick={() => {
                   // Resume inside the gesture, then rebuild from the shared clock.
                   const ctx = context();
-                  void ctx.resume().then(() => {
+                  void resumeDawAudio(ctx, true).then(() => {
+                    if (dawAudioNeedsGesture(ctx)) {
+                      setAudioBlocked(true);
+                      return;
+                    }
                     const activity = remoteActivityRef.current;
                     if (activity?.mode === "playing")
                       void playFrom(remotePosition(activity), false);
+                    else if (transportRef.current.active) void playFrom(currentPosition(), false);
                   }).catch(() => setError("Audio playback could not start. Try enabling audio again."));
                 }}
               >
