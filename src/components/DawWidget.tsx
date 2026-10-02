@@ -1,5 +1,5 @@
 import { Toast } from './Toast';
-import { useDawSync } from "../hooks/useDawSync";
+import { useDawSync, type DawVoice } from "../hooks/useDawSync";
 import type { RoomDataConnection } from "../hooks/usePeer";
 import { dawActivityPosition, type DawActivity } from "../utils/dawSync";
 import { DawCreateTrackDialog } from "./DawCreateTrackDialog";
@@ -150,6 +150,7 @@ export function DawWidget({
   const [scrollLeft, setScrollLeft] = useState(0);
   const [createTrackOpen, setCreateTrackOpen] = useState(false);
   const remoteVoicesRef = useRef(new Map<string, AudioScheduledSourceNode>());
+  const remoteVoiceStateRef = useRef(new Map<string, DawVoice[]>());
   const instrumentNotes = useRef(new Map<number, AudioScheduledSourceNode>());
   const midiTake = useRef<{
     trackId: string;
@@ -246,22 +247,14 @@ export function DawWidget({
     sourcesRef.current = [];
   };
   const stop = (reset = false, share = true) => {
+    const position = reset ? 0 : currentPosition();
     if (share) {
-      sync.publish("stopped", reset ? 0 : currentPosition());
+      sync.publish("stopped", position);
       remoteActivityRef.current = null;
     }
     transportRequestRef.current++;
     const transport = transportRef.current;
-    if (transport.active && contextRef.current)
-      setPlayhead(
-        reset
-          ? 0
-          : Math.min(
-              duration,
-              transport.offset + contextRef.current.currentTime - transport.at,
-            ),
-      );
-    else if (reset) setPlayhead(0);
+    setPlayhead(position);
     transport.active = false;
     stopSources();
     setPlaying(false);
@@ -678,7 +671,7 @@ export function DawWidget({
       scheduleDawNote(
         ctx,
         pitch,
-        selectedTrack.muted ? 0 : selectedTrack.volume,
+        audibleTracks(tracksRef.current).some(track => track.id === selectedTrack.id) ? selectedTrack.volume : 0,
         selectedTrack.pan,
         ctx.currentTime,
         MAX_DAW_SECONDS,
@@ -804,7 +797,7 @@ export function DawWidget({
       return;
     }
     if (busy) return;
-    if (transportRef.current.active) stop();
+    if (playing || remoteActivityRef.current?.mode === "playing" || transportRef.current.active) stop();
     else void playFrom(playhead);
   };
 
@@ -918,17 +911,20 @@ export function DawWidget({
         microphoneSourceRef.current = null;
         if (recordTimerRef.current) clearTimeout(recordTimerRef.current);
         if (!aliveRef.current) return;
-        if (localTakeRef.current)
+        const ownsTransport = localTakeRef.current;
+        if (ownsTransport)
           sync.publish(
             "stopped",
             start + (performance.now() - recordingStartedRef.current) / 1000,
           );
         localTakeRef.current = false;
-        setRecording(false);
-        setPlayhead(
-          start + (performance.now() - recordingStartedRef.current) / 1000,
-        );
-        setLiveTake(null);
+        if (ownsTransport) {
+          setRecording(false);
+          setPlayhead(
+            start + (performance.now() - recordingStartedRef.current) / 1000,
+          );
+          setLiveTake(null);
+        }
         const type = recorder.mimeType || chunks[0]?.type || "audio/webm";
         const extension = type.includes("mp4")
           ? "m4a"
@@ -972,6 +968,64 @@ export function DawWidget({
       if (aliveRef.current) setBusy(false);
     }
   };
+
+  const receiveVoices = (owner: string, voices: DawVoice[]) => {
+    if (voices.length) remoteVoiceStateRef.current.set(owner, voices);
+    else remoteVoiceStateRef.current.delete(owner);
+    const audible = audibleTracks(tracksRef.current);
+    const desired = new Set(
+      voices.filter(v => audible.some(track => track.id === v.trackId)).map((v) => `${owner}:${v.trackId}:${v.pitch}`),
+    );
+    for (const [key, node] of remoteVoicesRef.current) {
+      if (key.startsWith(`${owner}:`) && !desired.has(key)) {
+        try {
+          node.stop();
+        } catch {
+          /* stopped */
+        }
+        remoteVoicesRef.current.delete(key);
+      }
+    }
+    for (const voice of voices) {
+      const key = `${owner}:${voice.trackId}:${voice.pitch}`;
+      const track = audible.find((t) => t.id === voice.trackId);
+      if (!track || remoteVoicesRef.current.has(key)) continue;
+      const ctx = context();
+      void ctx.resume();
+      remoteVoicesRef.current.set(
+        key,
+        scheduleDawNote(
+          ctx,
+          voice.pitch,
+          track.volume,
+          track.pan,
+          ctx.currentTime,
+          MAX_DAW_SECONDS,
+        ),
+      );
+    }
+  };
+
+  const refreshVoices = useEffectEvent(() => {
+    // Held instrument notes must follow shared mixer edits just like arrangement playback.
+    const localPitches = [...instrumentNotes.current.keys()];
+    for (const node of instrumentNotes.current.values()) {
+      try { node.stop(); } catch { /* Already stopped. */ }
+    }
+    instrumentNotes.current.clear();
+    const track = tracksRef.current.find(track => track.id === selected && !track.deleted);
+    if (track && localPitches.length) {
+      const ctx = context();
+      const volume = audibleTracks(tracksRef.current).some(t => t.id === track.id) ? track.volume : 0;
+      for (const pitch of localPitches) instrumentNotes.current.set(pitch, scheduleDawNote(ctx, pitch, volume, track.pan, ctx.currentTime, MAX_DAW_SECONDS));
+    }
+    for (const node of remoteVoicesRef.current.values()) {
+      try { node.stop(); } catch { /* Already stopped. */ }
+    }
+    remoteVoicesRef.current.clear();
+    for (const [owner, voices] of remoteVoiceStateRef.current) receiveVoices(owner, voices);
+  });
+  useEffect(() => { refreshVoices(); }, [tracks, selected]);
 
   const sync = useDawSync(
     id,
@@ -1049,41 +1103,7 @@ export function DawWidget({
       setSelectedRegionIdLocal(view.region);
       setZoomLocal(view.zoom);
     },
-    (owner, voices) => {
-      const desired = new Set(
-        voices.map((v) => `${owner}:${v.trackId}:${v.pitch}`),
-      );
-      for (const [key, node] of remoteVoicesRef.current) {
-        if (key.startsWith(`${owner}:`) && !desired.has(key)) {
-          try {
-            node.stop();
-          } catch {
-            /* stopped */
-          }
-          remoteVoicesRef.current.delete(key);
-        }
-      }
-      for (const voice of voices) {
-        const key = `${owner}:${voice.trackId}:${voice.pitch}`;
-        const track = audibleTracks(tracksRef.current).find(
-          (t) => t.id === voice.trackId,
-        );
-        if (!track || remoteVoicesRef.current.has(key)) continue;
-        const ctx = context();
-        void ctx.resume();
-        remoteVoicesRef.current.set(
-          key,
-          scheduleDawNote(
-            ctx,
-            voice.pitch,
-            track.volume,
-            track.pan,
-            ctx.currentTime,
-            MAX_DAW_SECONDS,
-          ),
-        );
-      }
-    },
+    receiveVoices,
   );
 
   const exportMix = async () => {
@@ -1115,7 +1135,15 @@ export function DawWidget({
     if (recording || busy) return;
     const next = Math.max(0, Math.min(duration, position));
     setPlayhead(next);
-    if (transportRef.current.active && next < duration) void playFrom(next);
+    if ((playing || remoteActivityRef.current?.mode === "playing" || transportRef.current.active) && next < duration) {
+      // Share the seek immediately, even if this browser cannot output audio yet.
+      stop(false, false);
+      remoteActivityRef.current = null;
+      setPlayhead(next);
+      setPlaying(true);
+      sync.publish("playing", next);
+      void playFrom(next, false);
+    }
     else {
       stop(false, false);
       setPlayhead(next);
