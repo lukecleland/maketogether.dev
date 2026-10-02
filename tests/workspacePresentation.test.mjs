@@ -8,19 +8,29 @@ function load(path, imports = {}) {
   vm.runInNewContext(ts.transpileModule(readFileSync(new URL(`../${path}`, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, scope);
   return scope.exports;
 }
-test('landing shuffle starts make/work and returns to make with a double hold without splitting the lyric', () => {
-  const { BRAND_WORDS: words, brandWordDuration } = load('src/utils/brandWords.ts');
-  assert.equal(words[0], 'make'); assert.equal(words[1], 'work');
-  for (const word of ['sing','laugh','party','sketch','build','develop','write','compose','code','grow']) assert.ok(words.includes(word));
-  const start = words.indexOf('stop'); assert.equal(words.slice(start, start + 3).join(','), 'stop,collaborate,listen');
-  assert.equal(words.filter(word => word === 'work').length, 1);
-  assert.notEqual(words.at(-1), 'make');
-  for (const word of words) assert.equal(brandWordDuration(word), word === 'make' ? 5200 : 2600);
-  let since = 0;
-  for (const word of words.slice(1)) {
-    if (word === 'make') { assert.ok(since >= 4 && since <= 6); since = 0; }
-    else since++;
+test('landing words shuffle equally without repeating make or splitting the lyric', () => {
+  const { buildBrandWords, BRAND_WORD_DURATION } = load('src/utils/brandWords.ts');
+  assert.equal(BRAND_WORD_DURATION, 2600);
+  const expected = ['make','work','watch','create','record','jam','learn','sing','laugh','party','sketch','build','develop','write','compose','code','grow','produce','decide','teach','come','talk','stop','collaborate','listen'].sort();
+  let seed = 12345;
+  const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 2 ** 32; };
+  let previous;
+  const orders = new Set();
+  for (let cycle = 0; cycle < 100; cycle++) {
+    const words = Array.from(buildBrandWords(random, previous));
+    assert.deepEqual([...words].sort(), expected);
+    assert.equal(new Set(words).size, words.length);
+    const start = words.indexOf('stop');
+    assert.deepEqual(words.slice(start, start + 3), ['stop', 'collaborate', 'listen']);
+    assert.notEqual(words[0], previous);
+    previous = words.at(-1);
+    orders.add(words.join(','));
   }
+  assert.ok(orders.size > 90, 'each cycle should get a fresh random order');
+  const unchanged = () => 0.999;
+  const normal = Array.from(buildBrandWords(unchanged));
+  assert.equal(normal[0], 'make');
+  assert.notEqual(buildBrandWords(unchanged, 'make')[0], 'make');
 });
 test('overview fits mixed panels in desktop/mobile slots without changing their geometry', () => {
   const { layoutOverview } = load('src/utils/panelOverview.ts');

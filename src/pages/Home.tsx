@@ -1,4 +1,4 @@
-import { BRAND_WORDS, brandWordDuration } from '../utils/brandWords';
+import { buildBrandWords, BRAND_WORD_DURATION } from '../utils/brandWords';
 import { Toast } from '../components/Toast';
 import { BrandMark } from "../components/BrandMark";
 import { useEffect, useState } from "react";
@@ -9,13 +9,19 @@ interface HomeProps {
 }
 
 export function Home({ onStart }: HomeProps) {
-  const [wordIndex, setWordIndex] = useState(0);
+  const [rotation, setRotation] = useState(() => ({
+    words: ['make', ...buildBrandWords().filter(word => word !== 'make')],
+    index: 0,
+  }));
+  const word = rotation.words[rotation.index];
   useEffect(() => {
     const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
     if (motion.matches) return;
-    const timer = setTimeout(() => setWordIndex(index => (index + 1) % BRAND_WORDS.length), brandWordDuration(BRAND_WORDS[wordIndex]));
+    const timer = setTimeout(() => setRotation(previous => previous.index + 1 < previous.words.length
+      ? { ...previous, index: previous.index + 1 }
+      : { words: buildBrandWords(Math.random, previous.words.at(-1)), index: 0 }), BRAND_WORD_DURATION);
     return () => clearTimeout(timer);
-  }, [wordIndex]);
+  }, [rotation]);
   const prefilled = getCodeFromURL() ?? "";
   const [joinCode, setJoinCode] = useState(prefilled);
   const [joinError, setJoinError] = useState("");
@@ -47,7 +53,7 @@ export function Home({ onStart }: HomeProps) {
             <span aria-hidden="true" className="grid [grid-template-columns:calc(50%_-_2rem)_1fr] items-baseline">
               <span className="brand-words text-brand-300">
                 <span className="brand-word-sizer">collaborate</span>
-                <span key={wordIndex} className="brand-word">{BRAND_WORDS[wordIndex]}</span>
+                <span key={word} className="brand-word">{word}</span>
               </span>
               <span className="text-left">together</span>
             </span>
