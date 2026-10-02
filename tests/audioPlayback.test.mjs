@@ -116,10 +116,13 @@ function dawClient({ microphone } = {}) {
     async arrayBuffer() { return new ArrayBuffer(1); }
   }
   const ctx = { state: 'suspended', currentTime: 0,
+    sampleRate: 44100, destination: {},
+    createBuffer: () => ({}),
+    createBufferSource: () => ({ connect() {}, disconnect() {}, start() {} }),
     createAnalyser: () => ({ fftSize: 0, disconnect() {} }),
     createMediaStreamSource: () => ({ connect() {}, disconnect() {} }),
     decodeAudioData: async () => ({ duration: 2 }),
-    resume: () => new Promise(resolve => { resume = () => { ctx.state = 'running'; ctx.onstatechange?.(); resolve(); }; }) };
+    resume: () => new Promise(resolve => { resume = (state = 'running') => { ctx.state = state; ctx.onstatechange?.(); resolve(); }; }) };
   const react = {
     useState: value => { const index = stateIndex++; if (!(index in states)) states[index] = value; return [states[index], next => { states[index] = typeof next === 'function' ? next(states[index]) : next; }]; },
     useRef: value => refs[refIndex++] ??= { current: value },
@@ -128,12 +131,14 @@ function dawClient({ microphone } = {}) {
   };
   const utils = load('src/utils/daw.ts');
   const syncUtils = load('src/utils/dawSync.ts');
+  const audioUtils = load('src/utils/dawAudio.ts', {}, { AudioContext: function () { return ctx; } });
   const jsx = (type, props) => ({ type, props });
   const { DawWidget } = load('src/components/DawWidget.tsx', {
     react, 'react/jsx-runtime': { jsx, jsxs: jsx }, '../utils/daw': {
       ...utils, scheduleDaw: (_ctx, tracks, _buffers, position) => { schedules.push({ tracks, position }); return []; },
       scheduleDawNote: (_ctx, pitch, volume, pan) => { const node = { pitch, volume, pan, stop() { this.stopped = true; } }; notes.push(node); return node; },
     }, '../utils/dawSync': syncUtils,
+    '../utils/dawAudio': audioUtils,
     '../utils/dawShortcuts': {}, './Toast': {}, './DawCreateTrackDialog': {}, './DawWaveform': {}, './DawInstrument': {}, './DawPanDial': {}, './DawMenu': {}, './DawTransportIcon': {},
     '../hooks/useDawSync': { useDawSync: (_id, _connection, onReceive, _preview, onView, onVoices) => { receive = onReceive; receiveView = onView; receiveVoices = onVoices; return { publish: (...args) => published.push(args), publishView() {}, publishVoices() {} }; } },
   }, { AudioContext: function () { return ctx; }, performance: { now: () => now }, crypto: { randomUUID: () => 'edit' },
@@ -153,7 +158,7 @@ function dawClient({ microphone } = {}) {
     view: view => receiveView(view),
     receive: activity => receive(activity),
     play: () => receive({ revision: 1, id: 'command', owner: 'peer', mode: 'playing', position: 10, at: Date.now() }),
-    advance: seconds => { now += seconds * 1000; }, resume: () => resume(),
+    advance: seconds => { now += seconds * 1000; }, resume: state => resume(state),
   };
 }
 
@@ -277,6 +282,41 @@ test('DAW Enable audio restarts shared playback at the current position without 
   assert.equal(client.schedules.length, 1);
   assert.ok(client.schedules[0].position >= 14);
   assert.equal(client.published.length, 0);
+});
+
+test('iPad interrupted audio keeps Enable audio visible and does not schedule inaudible playback', async () => {
+  const client = dawClient(), tracks = [client.track('Shared')];
+  client.render(tracks); client.play();
+  client.resume('interrupted'); await flush(); client.render(tracks);
+  assert.equal(client.schedules.length, 0);
+  assert.ok(client.button('Enable audio'));
+  client.advance(5); client.button('Enable audio').props.onClick();
+  client.resume(); await flush(); client.resume(); await flush();
+  assert.equal(client.schedules.length, 1);
+  assert.ok(client.schedules[0].position >= 15);
+  assert.equal(client.published.length, 0);
+});
+
+test('Enable audio remains available when a local Play attempt has not unlocked the context', async () => {
+  const client = dawClient(), tracks = [client.track('Shared')];
+  client.render(tracks); client.button('Play').props.onClick();
+  client.resume('interrupted'); await flush(); client.render(tracks);
+  assert.ok(client.button('Enable audio'));
+  assert.equal(client.schedules.length, 0);
+  assert.equal(client.published.length, 0);
+});
+
+test('microphone recording begins audio unlock inside the initiating gesture before permission resolves', async () => {
+  let allow, stopped = false;
+  const client = dawClient({ microphone: () => new Promise(resolve => { allow = resolve; }) });
+  client.render([]); client.button('Record').props.onClick();
+  assert.equal(typeof client.ctx.onstatechange, 'function', 'audio context is created before the permission promise settles');
+  client.resume(); await flush();
+  allow({ getTracks: () => [{ stop() { stopped = true; } }] }); await flush();
+  assert.equal(client.recorders[0].state, 'recording');
+  client.receive({ revision: 3, id: 'stop', owner: 'peer', mode: 'stopped', position: 0, at: Date.now() });
+  client.recorders[0].onstop(); await flush();
+  assert.equal(stopped, true);
 });
 
 function canvasRecorderClient() {

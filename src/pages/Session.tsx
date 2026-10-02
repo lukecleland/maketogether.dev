@@ -36,9 +36,9 @@ import { useState, useEffect, useCallback, useRef } from 'react';
  *   dismissing is local. See the Dock component.
  *
  * ## Panel perspective swap
- * When a `panel-update` arrives for `"local"`, it is applied to `"remote"` and
- * vice versa. This means both users see their own video panel in the same
- * position — dragging "You" on one side moves "Guest" on the other.
+ * usePeer maps participant IDs to each receiver's perspective. A participant's
+ * AV panel keeps the same world position and size whether rendered as "You"
+ * locally or as that participant's peer panel on another client.
  *
  * ## z-order management
  * `topZRef` starts at 20 and is incremented each time a panel is clicked
@@ -576,8 +576,15 @@ export function Session({ roomCode, isHost }: SessionProps) {
 
 	const applyRoomSnapshot = useCallback((snapshot: RoomSnapshot) => {
 		ignoreLocalHydrationRef.current = true;
-		// Participant panels are perspective-specific. Keep this client's locally
-		// persisted self/peer geometry; live panel announcements repopulate peers.
+		// usePeer maps AV geometry to this client's participant identities. The
+		// shared layout must replace stale device-local positions when joining.
+		setFixedPanels(snapshot.fixedPanels);
+		setRemotePanelStates(snapshot.remotePanels ?? {});
+		knownRemoteGeometryRef.current = new Set(Object.keys(snapshot.remotePanels ?? {}));
+		topZRef.current = Math.max(topZRef.current,
+			...Object.values(snapshot.fixedPanels).map(panel => panel.z),
+			...Object.values(snapshot.remotePanels ?? {}).map(panel => panel.z),
+			...snapshot.panels.map(panel => panel.state.z));
 		setDynamicPanels(snapshot.panels.map(panel => ({
 			id: panel.id,
 			type: panel.type,
@@ -1302,7 +1309,18 @@ export function Session({ roomCode, isHost }: SessionProps) {
 			}
 			const snapshot = latestSnapshotRef.current;
 			if (!snapshot) return;
-			sendSync({ type: 'room-state-snapshot', snapshot: { ...snapshot, drawings: whiteboardRef.current?.getItems() ?? snapshot.drawings, savedAt: Date.now() }, requestId }, targetPeerId);
+			// Assign the joining participant's AV slot even if its media stream has
+			// not arrived yet, so both sides start with the same world geometry.
+			const peerIndex = Object.keys(snapshot.remotePanels ?? {}).length;
+			const participantState = snapshot.remotePanels?.[targetPeerId] ?? {
+				...snapshot.fixedPanels.remote,
+				x: snapshot.fixedPanels.remote.x + peerIndex * 28,
+				y: snapshot.fixedPanels.remote.y + peerIndex * 28,
+				z: snapshot.fixedPanels.remote.z + peerIndex
+			};
+			knownRemoteGeometryRef.current.add(targetPeerId);
+			setRemotePanelStates(previous => ({ ...previous, [targetPeerId]: previous[targetPeerId] ?? participantState }));
+			sendSync({ type: 'room-state-snapshot', snapshot: { ...snapshot, remotePanels: { ...snapshot.remotePanels, [targetPeerId]: participantState }, drawings: whiteboardRef.current?.getItems() ?? snapshot.drawings, savedAt: Date.now() }, requestId }, targetPeerId);
 			dynamicPanels.forEach(panel => {
 				if (panel.initialFile) sendFileTo(panel.id, panel.initialFile, undefined, targetPeerId);
 				panel.recordings?.forEach(recording => sendFileTo(panel.id, recording.file, recording.id, targetPeerId));
@@ -1326,7 +1344,9 @@ export function Session({ roomCode, isHost }: SessionProps) {
 	}, [sendSync, status]);
 
 	useEffect(() => {
-		if (status === 'connected') sendSync({ type: 'panel-announce', id: 'local', state: normalisePanel(fixedPanels.local) });
+		// Guests must adopt the shared layout before announcing their own panel;
+		// otherwise default/persisted self geometry can overwrite the room layout.
+		if (status === 'connected' && (dataConnectionRef.current?.isLead || roomSnapshotReceivedRef.current)) sendSync({ type: 'panel-announce', id: 'local', state: normalisePanel(fixedPanels.local) });
 	}, [fixedPanels.local, sendSync, status]);
 
 	const handleWbClear = useCallback(() => {

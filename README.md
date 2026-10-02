@@ -401,7 +401,12 @@ If the transport owner disconnects, peers stop after an eight-second timeout;
 held instrument previews expire after two seconds without updates. Session
 activity is transient and does not restart when a saved room is reopened.
 Browsers that block automatic audio display **Enable audio**; the shared
-playhead still advances. This is network-synchronized playback, not sample-accurate
+playhead still advances. On iPad Safari, the DAW requests a playback-and-record
+audio session alongside conferencing, primes Web Audio during a user tap, and
+also detects Safari's interrupted context state. **Enable audio** remains
+available when playback has not started locally; returning to the page attempts
+to resume an interrupted context and rebuild playback from the shared clock.
+This is network-synchronized playback, not sample-accurate
 remote recording or live microphone audio streaming. Keyboard focus, menus,
 file pickers and exports stay local. Recordings use the selected track, or create
 one if none is selected.
@@ -449,7 +454,7 @@ Choose **Share screen** in the right-hand controls (or the mobile **Add widget**
 
 ### Joining an existing room
 
-New participants automatically request the current room snapshot from the active room owner, then receive its media files. This restores shared panels, notes, code, drawings, DAW tracks and saved playback state. Responses are addressed to the newcomer, so joining does not reset other participants’ views. The handshake retries while connecting and also works after another participant takes over the room.
+New participants automatically request the current room snapshot from the active room owner, then receive its media files. This restores shared panels, notes, code, drawings, DAW tracks and saved playback state, including the current size and world position of every participant's AV window. Participant IDs are mapped so the joining client's own window is rendered as **You** at the same location it occupies for everyone else. Newcomers adopt this layout before announcing their own AV geometry. Responses are addressed to the newcomer, so joining does not reset other participants’ views. The handshake retries while connecting and also works after another participant takes over the room.
 
 ### Link previews
 

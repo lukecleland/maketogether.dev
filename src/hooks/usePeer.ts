@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Peer, { type DataConnection, type MediaConnection } from "peerjs";
+import type { PanelState } from '../types/panels';
+import { participantPanelsForReceiver } from '../utils/participantPanels';
 
 export type PeerStatus = "idle" | "connecting" | "waiting" | "connected" | "error";
 
@@ -166,9 +168,10 @@ function identifyPeerMessage(
     ? `remote-peer:${sourcePeerId}`
     : id === `remote-peer:${localPeerId}` ? "local" : id;
   // Snapshot keys need the same receiver perspective as live dock messages.
-  const message = data as { id?: unknown; type?: string; snapshot?: { dockedIds: string[]; customLabels: Record<string, string> } };
+  const message = data as { id?: unknown; type?: string; snapshot?: { dockedIds: string[]; customLabels: Record<string, string>; fixedPanels?: Record<'local' | 'remote', PanelState>; remotePanels?: Record<string, PanelState> } };
   if (message.type === "room-state-snapshot" && message.snapshot) {
     return { ...data, snapshot: { ...message.snapshot,
+      ...(message.snapshot.fixedPanels ? participantPanelsForReceiver(message.snapshot.fixedPanels, message.snapshot.remotePanels, sourcePeerId, localPeerId) : {}),
       dockedIds: message.snapshot.dockedIds.map(panelId),
       customLabels: Object.fromEntries(Object.entries(message.snapshot.customLabels).map(([id, label]) => [panelId(id), label])),
     } };

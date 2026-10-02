@@ -39,7 +39,7 @@ function participant(id, media, host = false) {
     crypto: { randomUUID: () => 'nonce' }, document: { hidden: false },
     setTimeout: (fn, ms) => { timers.set(++sequence, { fn, at: now + ms }); return sequence; },
     clearTimeout: key => timers.delete(key), setInterval: () => ++sequence, clearInterval() {},
-  }, { react, peerjs: MockPeer });
+  }, { react, peerjs: MockPeer, '../utils/participantPanels': load('src/utils/participantPanels.ts') });
   const result = usePeer({ roomCode: 'MAKER', isHost: host, localStream: { getTracks: () => media ? [{ kind: 'audio', readyState: 'live' }] : [] } });
   const cleanup = effects[0](); peer.emit('open');
   if (host) { peer.data = new Connection('1-guest', { canSendMedia: true }); peer.emit('connection', peer.data); }
@@ -186,5 +186,23 @@ test('participant dock names retain identity for live updates and joining snapsh
   const snapshot = JSON.parse(JSON.stringify(received.at(-1).snapshot));
   assert.deepEqual(snapshot.dockedIds, ['remote-peer:maker', 'local', 'remote-peer:third', 'note-1']);
   assert.deepEqual(snapshot.customLabels, { 'remote-peer:maker': 'Luke', local: 'Alex', 'remote-peer:third': 'Sam', 'note-1': 'Ideas' });
+  guest.cleanup();
+});
+
+test('received room snapshots map all AV windows to the joining participant without resizing them', () => {
+  const guest = participant('1-guest', true);
+  const mesh = guest.state.find(value => value && typeof value.send === 'function');
+  const received = [];
+  mesh.on('data', message => received.push(message));
+  const hostCard = { x: 540, y: 80, width: 520, height: 300, z: 25 };
+  const guestCard = { x: -100, y: 100, width: 260, height: 380, z: 23 };
+  const thirdCard = { x: 900, y: 150, width: 320, height: 180, z: 22 };
+  guest.peer.data.emit('data', {
+    type: 'room-state-snapshot', __meshSourcePeerId: 'maker', __meshMessageId: 'geometry',
+    snapshot: { dockedIds: [], customLabels: {}, fixedPanels: { local: hostCard, remote: guestCard }, remotePanels: { '1-guest': guestCard, third: thirdCard } },
+  });
+  const snapshot = JSON.parse(JSON.stringify(received.at(-1).snapshot));
+  assert.deepEqual(snapshot.fixedPanels.local, guestCard);
+  assert.deepEqual(snapshot.remotePanels, { maker: hostCard, third: thirdCard });
   guest.cleanup();
 });
