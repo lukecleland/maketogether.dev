@@ -359,6 +359,27 @@ storage and are sent to late joiners. Participants must be connected to exchange
 changes: this is not a server-hosted project library or offline collaboration.
 Room JSON exports include arrangement metadata but omit the audio files.
 
+### Audio region editing
+
+Select a recorded or imported audio region to open its region controls. Drag
+its body to move it, its lower side edges to trim, or the **↻** handle in the
+upper-right corner to repeat the trimmed recording. The loop handle has a
+44px touch target on iPad and other touch screens; left/right keys on the
+handle remove/add a repetition. Repeats can end partway through a recording.
+The region controls also offer rename, exact position and source trims,
+loop length, gain, playback speed, reverse, and reset settings. Playback speed
+changes pitch and region length. Snap aligns region moves and loop lengths to
+the current tempo's beat grid. MIDI note editing is outside this workflow.
+
+Copy, cut, paste, duplicate, split at the playhead, delete, move to another
+audio track, and join with the next audio region are available from the region
+controls. Joining renders a new shared WAV, retaining any gap between the two
+regions. Shared file limits also apply to joined audio. Undo/Redo (Cmd/Ctrl+Z
+and Shift+Cmd/Ctrl+Z) restore local region edits, including one complete loop
+drag or track move. Undo refuses to replace a region changed by another client.
+Loops and region settings synchronize with peers, survive saved/exported rooms,
+and are included in WAV export. Original recordings remain unchanged.
+
 ### DAW transport and keyboard
 
 The transport provides go-to-start, rewind, forward, stop, play/pause and record

@@ -14,6 +14,7 @@ export interface DawView {
   tempo?: number;
   click?: boolean;
   countIn?: boolean;
+  snap?: boolean;
 }
 export interface DawVoice {
   trackId: string;
@@ -39,7 +40,7 @@ export function useDawSync(
     selected: null,
     region: null,
     zoom: 0,
-    tempo: 120, click: false, countIn: false,
+    tempo: 120, click: false, countIn: false, snap: false,
     revision: 0,
     id: "",
   });
@@ -141,6 +142,7 @@ export function useDawSync(
           (next.tempo !== undefined && (!Number.isFinite(next.tempo) || next.tempo < 30 || next.tempo > 300)) ||
           (next.click !== undefined && typeof next.click !== "boolean") ||
           (next.countIn !== undefined && typeof next.countIn !== "boolean") ||
+          (next.snap !== undefined && typeof next.snap !== "boolean") ||
           !(next.selected === null || typeof next.selected === "string") ||
           !(next.region === null || typeof next.region === "string")
         )

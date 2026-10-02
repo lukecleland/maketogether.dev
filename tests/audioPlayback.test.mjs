@@ -7,7 +7,7 @@ import ts from 'typescript';
 function load(path, imports = {}, globals = {}) {
   const source = readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
   const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
-  const context = { exports: {}, require: name => imports[name], Date, ...globals };
+  const context = { exports: {}, require: name => imports[name], Date, Blob, ...globals };
   vm.runInNewContext(js, context);
   return context.exports;
 }
@@ -106,7 +106,7 @@ function dawClient({ microphone } = {}) {
   const refs = [], states = [], schedules = [], effects = [], published = [], notes = [];
   let stateIndex = 0, refIndex = 0, now = 0, receive, receiveView, receiveVoices, resume;
   const recorders = [], imported = [], trackUpdates = [], timers = new Map();
-  let timerId = 0, frame;
+  let timerId = 0, frame, uuid = 0;
   class Recorder {
     constructor() { this.state = 'inactive'; recorders.push(this); }
     start() { this.state = 'recording'; }
@@ -140,14 +140,21 @@ function dawClient({ microphone } = {}) {
       scheduleDawNote: (_ctx, pitch, volume, pan) => { const node = { pitch, volume, pan, stop() { this.stopped = true; } }; notes.push(node); return node; },
     }, '../utils/dawSync': syncUtils,
     '../utils/dawAudio': audioUtils,
+    '../utils/dawClick': load('src/utils/dawClick.ts'),
+    '../utils/dawRegionHistory': load('src/utils/dawRegionHistory.ts'),
+    './DawRegionEditor': {},
     '../utils/dawShortcuts': {}, './Toast': {}, './DawCreateTrackDialog': {}, './DawWaveform': {}, './DawInstrument': {}, './DawPanDial': {}, './DawMenu': {}, './DawTransportIcon': {},
     '../hooks/useDawSync': { useDawSync: (_id, _connection, onReceive, _preview, onView, onVoices) => { receive = onReceive; receiveView = onView; receiveVoices = onVoices; return { publish: (...args) => published.push(args), publishView() {}, publishVoices() {} }; } },
-  }, { AudioContext: function () { return ctx; }, performance: { now: () => now }, crypto: { randomUUID: () => 'edit' },
+  }, { OfflineAudioContext: function(channels, length, sampleRate) {
+    this.length = length; this.numberOfChannels = channels; this.sampleRate = sampleRate; this.duration = length / sampleRate;
+    const samples = Array.from({ length: channels }, () => new Float32Array(length));
+    this.getChannelData = index => samples[index]; this.startRendering = async () => this;
+  }, AudioContext: function () { return ctx; }, performance: { now: () => now }, crypto: { randomUUID: () => `edit-${++uuid}` },
     navigator: { mediaDevices: { getUserMedia: microphone } }, MediaRecorder: Recorder, File: TakeFile,
     setTimeout: fn => { timers.set(++timerId, fn); return timerId; }, clearTimeout: id => timers.delete(id),
     requestAnimationFrame: fn => { frame = fn; return 1; }, cancelAnimationFrame() {} });
-  const track = name => ({ id: 'track', name, kind: 'midi', volume: 1, pan: 0, muted: false, solo: false, revision: 1, editId: name,
-    regions: [{ id: 'region', sourceId: 'midi', name, duration: 120, trimStart: 0, trimEnd: 120, start: 0, revision: 1, editId: name, notes: [{ pitch: 60, start: 0, duration: 120, velocity: 0.8 }] }] });
+  const track = name => ({ id: 'track', name, kind: 'midi', deleted: false, volume: 1, pan: 0, muted: false, solo: false, revision: 1, editId: name,
+    regions: [{ id: 'region', sourceId: 'midi', name, deleted: false, duration: 120, trimStart: 0, trimEnd: 120, start: 0, revision: 1, editId: name, notes: [{ pitch: 60, start: 0, duration: 120, velocity: 0.8 }] }] });
   let tree;
   const render = tracks => { stateIndex = 0; refIndex = 0; effects.length = 0; tree = DawWidget({ id: 'daw', title: 'Make Music Together', tracks, recordings: [], onTrack: track => trackUpdates.push(track), onFile: file => imported.push(file), onClose() {}, onMinimize() {}, onToggleDock() {} }); };
   const button = text => {
@@ -155,7 +162,12 @@ function dawClient({ microphone } = {}) {
     function walk(node) { if (!node || typeof node !== 'object') return; if (node.type === 'button' && (node.props.children === text || node.props['aria-label'] === text)) found = node; for (const child of [node.props?.children].flat(Infinity)) walk(child); }
     walk(tree); return found;
   };
-  return { track, render, button, schedules, effects, published, notes, ctx, recorders, imported, trackUpdates,
+  const find = predicate => {
+    let found;
+    function walk(node) { if (!node || typeof node !== 'object') return; if (predicate(node)) found = node; for (const child of [node.props?.children].flat(Infinity)) walk(child); }
+    walk(tree); return found;
+  };
+  return { track, render, button, find, schedules, effects, published, notes, ctx, recorders, imported, trackUpdates,
     frame: () => frame?.(),
     finishTimer: () => { const entry = timers.entries().next().value; assert.ok(entry); timers.delete(entry[0]); entry[1](); },
     voices: (owner, voices) => receiveVoices(owner, voices),
@@ -472,4 +484,58 @@ test('peer Stop while MIDI audio unlock is pending prevents a delayed count-in',
   client.resume(); await flush(); client.render(tracks);
   assert.ok(client.published.every(([mode]) => mode !== 'count-in' && mode !== 'recording'));
   assert.equal(client.button('Record').props.disabled, false);
+});
+
+
+test('audio loop handle publishes repeats and one Undo restores the whole drag', () => {
+  const client = dawClient(); const original = client.track('take'); original.kind = 'audio';
+  Object.assign(original.regions[0], { duration: 10, start: 3, trimStart: 2, trimEnd: 6 }); delete original.regions[0].notes;
+  client.render([original]);
+  const r = client.find(node => node.props?.['data-region-id'] === 'region');
+  const target = { setPointerCapture() {}, parentElement: { getBoundingClientRect: () => ({ width: 300 }) } };
+  r.props.onPointerDown({ button: 0, stopPropagation() {}, clientX: 0, pointerId: 1, currentTarget: target, target: { dataset: { edge: 'loop' } } });
+  for (const clientX of [50, 100]) r.props.onPointerMove({ clientX, buttons: 1 });
+  r.props.onPointerUp();
+  const looped = client.trackUpdates.at(-1);
+  assert.equal(looped.regions[0].loopDuration, 14);
+  client.render([looped]);
+  client.button('Undo region edit').props.onClick();
+  assert.equal(client.trackUpdates.at(-1).regions[0].loopDuration, undefined);
+  client.render([client.trackUpdates.at(-1)]);
+  client.button('Redo region edit').props.onClick();
+  assert.equal(client.trackUpdates.at(-1).regions[0].loopDuration, 14);
+});
+
+test('region panel changes gain, reverse and speed and exposes editing actions on touch devices', () => {
+  const client = dawClient(); const original = client.track('take'); original.kind = 'audio'; delete original.regions[0].notes;
+  client.render([original]); client.view({ selected: 'track', region: 'region', zoom: 0 }); client.render([original]);
+  const panel = client.find(node => node.props?.onPatch && node.props?.region);
+  assert.ok(panel);
+  assert.deepEqual(Array.from(panel.props.actions, action => action.label), ['Copy','Cut','Paste','Duplicate','Split','Join next','Delete']);
+  panel.props.onPatch({ gain: 0.5, reverse: true, speed: 2 });
+  const region = client.trackUpdates.at(-1).regions[0];
+  assert.equal(region.gain, 0.5); assert.equal(region.reverse, true); assert.equal(region.speed, 2);
+});
+
+
+test('joining adjacent recorded portions creates one shared file and Undo restores both originals', async () => {
+  const stream = { getTracks: () => [{ stop() {} }] };
+  const client = dawClient({ microphone: async () => stream }); client.render([]);
+  client.button('Record').props.onClick(); client.resume(); await flush();
+  client.advance(2); client.recorders[0].stop(); client.recorders[0].onstop(); await flush();
+  let t = client.trackUpdates.at(-1); client.render([t]);
+  client.view({ selected: t.id, region: t.regions[0].id, zoom: 0 }); client.render([t]);
+  let panel = client.find(node => node.props?.onPatch && node.props?.region);
+  panel.props.actions.find(action => action.label === 'Duplicate').action();
+  t = client.trackUpdates.at(-1); client.render([t]);
+  client.view({ selected: t.id, region: t.regions[0].id, zoom: 0 }); client.render([t]);
+  panel = client.find(node => node.props?.onPatch && node.props?.region);
+  panel.props.actions.find(action => action.label === 'Join next').action(); await flush();
+  t = client.trackUpdates.at(-1);
+  const visible = t.regions.filter(r => !r.deleted);
+  assert.equal(visible.length, 1); assert.equal(visible[0].duration, 4);
+  assert.equal(client.imported.at(-1).name.endsWith('joined.wav'), true);
+  client.render([t]); client.button('Undo region edit').props.onClick();
+  const restored = client.trackUpdates.at(-1).regions.filter(r => !r.deleted);
+  assert.equal(restored.length, 2); assert.ok(restored.every(r => r.name === t.regions[0].name || r.name === t.regions[1].name));
 });

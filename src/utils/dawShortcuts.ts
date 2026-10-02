@@ -1,4 +1,6 @@
 export type DawShortcut =
+  | "undo"
+  | "redo"
   | "new-track"
   | "copy"
   | "cut"
@@ -41,7 +43,9 @@ export function dawShortcut(
   if (editing || event.isComposing) return null;
   const key = event.key.toLowerCase();
   if (event.metaKey || event.ctrlKey) {
-    if (event.repeat || event.shiftKey) return null;
+    if (event.repeat) return null;
+    if (key === "z" && !event.altKey) return event.shiftKey ? "redo" : "undo";
+    if (event.shiftKey) return null;
     if (event.altKey) return key === "n" ? "new-track" : null;
     return (
       (

@@ -1,3 +1,5 @@
+import type { DawRegion } from './daw';
+
 /** Cache every sample's extrema, including all channels, once per decoded source. */
 const cache = new WeakMap<
   AudioBuffer,
@@ -43,5 +45,23 @@ export function waveformEnvelope(
       max = Math.max(max, peaks!.max[j]);
     }
     return { min, max };
+  });
+}
+
+/** Render only visible columns, including partial repeats and reversed audio. */
+export function regionWaveformEnvelope(buffer: AudioBuffer, region: DawRegion, start: number, end: number, columns: number) {
+  const count = Math.max(1, Math.ceil(columns));
+  const period = region.trimEnd - region.trimStart;
+  const rate = region.speed ?? 1;
+  return Array.from({ length: count }, (_, index) => {
+    const elapsed = start + (end - start) * index / count;
+    const span = (end - start) / count * rate;
+    const phase = ((region.loopOffset ?? 0) + elapsed * rate) % period;
+    const parts = span >= period ? [[0, period]]
+      : phase + span > period ? [[phase, period], [0, phase + span - period]] : [[phase, phase + span]];
+    const peaks = parts.map(([from, to]) => waveformEnvelope(buffer,
+      region.reverse ? region.trimEnd - to : region.trimStart + from,
+      region.reverse ? region.trimEnd - from : region.trimStart + to, 1)[0]);
+    return { min: Math.min(...peaks.map(p => p.min)), max: Math.max(...peaks.map(p => p.max)) };
   });
 }

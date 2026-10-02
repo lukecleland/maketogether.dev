@@ -152,6 +152,7 @@ test("all scheduled sources share one audio clock and use track gain and pan", (
     destination: node(),
     createBufferSource: () => ({
       ...node(),
+      playbackRate: { value: 1 },
       start: (...args) => starts.push(args),
     }),
     createGain: () => {

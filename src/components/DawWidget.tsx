@@ -1,4 +1,6 @@
 import { Toast } from './Toast';
+import { DawRegionEditor } from './DawRegionEditor';
+import { DawRegionHistory } from '../utils/dawRegionHistory';
 import { scheduleDawClick } from '../utils/dawClick';
 import { useDawSync, type DawVoice } from "../hooks/useDawSync";
 import type { RoomDataConnection } from "../hooks/usePeer";
@@ -33,6 +35,11 @@ import {
   splitDawRegion,
   type DawRegion,
   dawEnd,
+  regionDuration,
+  isDawRegion,
+  trimDawRegion,
+  restoreDawRegion,
+  unloopDawRegion,
   encodeWav,
   MAX_DAW_FILE_BYTES,
   MAX_DAW_SECONDS,
@@ -135,6 +142,11 @@ export function DawWidget({
   const [click, setClick] = useState(false);
   const [clickSchedule, setClickSchedule] = useState(0);
   const [countIn, setCountIn] = useState(false);
+  const [snap, setSnap] = useState(false);
+  const historyRef = useRef(new DawRegionHistory());
+  const editorGestureRef = useRef<string | undefined>(undefined);
+  const [, refreshHistory] = useState(0);
+  useEffect(() => { editorGestureRef.current = undefined; }, [selectedRegionId]);
   const [countInEndsAt, setCountInEndsAt] = useState<number | null>(null);
   const countInCancelRef = useRef<(() => void) | null>(null);
   const [busy, setBusy] = useState(false);
@@ -199,6 +211,9 @@ export function DawWidget({
     x: number;
     region: DawRegion;
     edge: string;
+    gesture: string;
+    scrollLeft: number;
+    scrollPixelsPerSecond: number;
     pixelsPerSecond: number;
   } | null>(null);
   const active = tracks.filter((t) => !t.deleted).sort(compareDawTracks);
@@ -475,16 +490,22 @@ export function DawWidget({
     const latest = tracksRef.current.find((t) => t.id === track.id) ?? track;
     sendTrack({ ...latest, ...patch, ...revision() });
   };
-  const publishRegions = (track: DawTrack, regions: DawRegion[]) => {
+  const publishRegions = (track: DawTrack, regions: DawRegion[], remember = true, gesture = dragRef.current?.gesture ?? editorGestureRef.current) => {
     const latest = tracksRef.current.find((t) => t.id === track.id) ?? track;
-    if (latest.deleted) return;
-    sendTrack({
-      ...latest,
-      regions: mergeDawRegions(
-        latest.regions,
-        regions.map((r) => ({ ...r, ...revision() })),
-      ),
-    });
+    if (latest.deleted) return [];
+    const written = regions.map(region => ({ ...(remember ? region : restoreDawRegion(region, latest.regions.find(r => r.id === region.id))), ...revision() }));
+    if (!written.every(isDawRegion)) return [];
+    if (remember) historyRef.current.record(track.id, latest.regions, written, gesture);
+    sendTrack({ ...latest, regions: mergeDawRegions(latest.regions, written) });
+    refreshHistory(value => value + 1);
+    return written;
+  };
+  const replayRegionEdit = (direction: 'undo' | 'redo') => {
+    if (busy || recording) return;
+    if (!historyRef.current.replay(direction, tracksRef.current, (track, regions) => publishRegions(track, regions, false))) {
+      setError("This region changed on another client; its earlier edit cannot be undone or redone.");
+    }
+    refreshHistory(value => value + 1);
   };
   const reorderTracks = (id: string, target: string, before: boolean) => {
     if (recording || busy) return;
@@ -1220,6 +1241,7 @@ export function DawWidget({
       setTempo(view.tempo ?? 120);
       setClick(view.click ?? false);
       setCountIn(view.countIn ?? false);
+      setSnap(view.snap ?? false);
     },
     receiveVoices,
   );
@@ -1305,7 +1327,7 @@ export function DawWidget({
         ...region,
         start: Math.max(
           0,
-          Math.min(MAX_DAW_SECONDS - region.trimEnd + region.trimStart, start),
+          Math.min(MAX_DAW_SECONDS - regionDuration(region), snap ? Math.round(start / (60 / tempo)) * 60 / tempo : start),
         ),
       },
     ]);
@@ -1320,8 +1342,8 @@ export function DawWidget({
     at?: number,
   ) => {
     if (!track || !region || recording || busy) return;
-    const start = at ?? region.start + region.trimEnd - region.trimStart;
-    if (start + region.trimEnd - region.trimStart > MAX_DAW_SECONDS) return;
+    const start = at ?? region.start + regionDuration(region);
+    if (start + regionDuration(region) > MAX_DAW_SECONDS) return;
     const copy = { ...region, id: crypto.randomUUID(), start, deleted: false };
     publishRegions(track, [copy]);
     setSelected(track.id);
@@ -1335,6 +1357,51 @@ export function DawWidget({
       crypto.randomUUID(),
     );
     if (parts) publishRegions(track, parts);
+  };
+  const editRegion = (track: DawTrack, region: DawRegion, patch: Partial<DawRegion>) => {
+    if (busy || recording) return;
+    let next = { ...('loopDuration' in patch && patch.loopDuration === undefined ? unloopDawRegion(region) : region), ...patch };
+    if ('trimStart' in patch || 'trimEnd' in patch) next = { ...next, loopDuration: undefined, loopOffset: undefined };
+    if (patch.speed !== undefined && region.loopDuration !== undefined) next.loopDuration = region.loopDuration * (region.speed ?? 1) / patch.speed;
+    if ('speed' in patch && patch.speed === undefined && next.loopDuration !== undefined) next.loopDuration *= region.speed ?? 1;
+    if (!isDawRegion(next)) { setError("Keep the region within its recording and the 30-minute timeline."); return; }
+    publishRegions(track, [next]);
+  };
+  const moveRegionToTrack = (track: DawTrack, region: DawRegion, targetId: string) => {
+    const target = tracksRef.current.find(t => t.id === targetId && !t.deleted && t.kind !== 'midi');
+    if (!target || target.id === track.id || busy || recording) return;
+    const gesture = crypto.randomUUID();
+    const moved = { ...region, id: crypto.randomUUID(), deleted: false };
+    publishRegions(target, [moved], true, gesture);
+    publishRegions(track, [{ ...region, deleted: true }], true, gesture);
+    setSelected(target.id); setSelectedRegionId(moved.id);
+  };
+  const nextAudioRegion = (track?: DawTrack, region?: DawRegion) => track && region && !region.notes
+    ? visibleRegions(track).filter(r => !r.notes && r.start >= region.start && r.id !== region.id).sort((a, b) => a.start - b.start)[0] : undefined;
+  const joinNextRegion = async (track?: DawTrack, region?: DawRegion) => {
+    const next = nextAudioRegion(track, region);
+    if (!track || !region || !next || busy || recording) return;
+    if ([region, next].some(r => !buffersRef.current.has(r.sourceId))) { setError("Restore the audio before joining regions."); return; }
+    setBusy(true);
+    try {
+      const start = Math.min(region.start, next.start);
+      const end = Math.max(region.start + regionDuration(region), next.start + regionDuration(next));
+      if (Math.ceil((end - start) * 44100) * 4 + 44 > MAX_DAW_FILE_BYTES) throw new Error("These regions are too large to join into one recording.");
+      const offline = new OfflineAudioContext(2, Math.ceil((end - start) * 44100), 44100);
+      scheduleDaw(offline, [{ ...track, muted: false, solo: false, volume: 1, pan: 0, regions: [region, next].map(r => ({ ...r, start: r.start - start })) }], buffersRef.current, 0, 0);
+      const rendered = await offline.startRendering();
+      if (!aliveRef.current) return;
+      const current = tracksRef.current.find(t => t.id === track.id && !t.deleted);
+      if (!current || [region, next].some(r => current.regions.find(candidate => candidate.id === r.id)?.editId !== r.editId)) throw new Error("A region changed while joining; try again.");
+      const sourceId = crypto.randomUUID();
+      const file = new File([encodeWav(rendered)], `${region.name} joined.wav`, { type: 'audio/wav' });
+      if (file.size > MAX_DAW_FILE_BYTES) throw new Error("These regions are too large to join into one recording.");
+      buffersRef.current.set(sourceId, rendered); filesRef.current.set(sourceId, file); setBuffers(new Map(buffersRef.current));
+      const joined: DawRegion = { id: crypto.randomUUID(), sourceId, name: `${region.name} joined`.slice(0, 200), duration: end - start, start, trimStart: 0, trimEnd: end - start, deleted: false, ...revision() };
+      publishRegions(current, [{ ...region, deleted: true }, { ...next, deleted: true }, joined]);
+      onFile({ id: sourceId, name: file.name, file }); setSelectedRegionId(joined.id);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not join these regions."); }
+    finally { if (aliveRef.current) setBusy(false); }
   };
   const menuTrack = active.find((t) => t.id === (menu?.trackId ?? selected));
   const menuRegion =
@@ -1394,6 +1461,11 @@ export function DawWidget({
     },
   ];
   const regionItems: DawMenuItem[] = [
+    { label: "Region Settings", action: () => { setSelected(menuTrack!.id); setSelectedRegionId(menuRegion!.id); }, disabled: !menuRegion },
+    { label: "Loop Region", action: () => editRegion(menuTrack!, menuRegion!, { loopDuration: Math.min(MAX_DAW_SECONDS - menuRegion!.start, regionDuration(menuRegion!) * 2), loopOffset: menuRegion!.loopOffset ?? 0 }), disabled: !menuRegion || !!menuRegion.notes || locked },
+    { label: "Remove Loop", action: () => editRegion(menuTrack!, menuRegion!, { loopDuration: undefined, loopOffset: undefined }), disabled: !menuRegion?.loopDuration || locked },
+    { label: "Reverse Region", action: () => editRegion(menuTrack!, menuRegion!, { reverse: !menuRegion!.reverse }), disabled: !menuRegion || !!menuRegion.notes || locked },
+    { label: "Join with Next Region", action: () => void joinNextRegion(menuTrack, menuRegion), disabled: !nextAudioRegion(menuTrack, menuRegion) || locked },
     {
       label: "Copy Region",
       shortcut: "⌘C",
@@ -1446,6 +1518,8 @@ export function DawWidget({
     },
   ];
   const workspaceItems: DawMenuItem[] = [
+    { label: "Undo Region Edit", shortcut: "⌘Z", action: () => replayRegionEdit('undo'), disabled: !historyRef.current.canUndo || locked },
+    { label: "Redo Region Edit", shortcut: "⇧⌘Z", action: () => replayRegionEdit('redo'), disabled: !historyRef.current.canRedo || locked },
     {
       label: "Add Track",
       shortcut: "⌥⌘N",
@@ -1469,8 +1543,7 @@ export function DawWidget({
         !!(
           clipboard.current &&
           currentPosition() +
-            clipboard.current.trimEnd -
-            clipboard.current.trimStart >
+            regionDuration(clipboard.current) >
             MAX_DAW_SECONDS
         ),
     },
@@ -1568,6 +1641,8 @@ export function DawWidget({
       return;
     event.preventDefault();
     switch (action) {
+      case "undo": replayRegionEdit("undo"); break;
+      case "redo": replayRegionEdit("redo"); break;
       case "play":
         togglePlay();
         break;
@@ -1856,6 +1931,9 @@ export function DawWidget({
               {countInEndsAt ? "Count in" : recording ? "Recording" : playing ? "Playing" : "Stopped"}
             </span>
           </div>
+          <button className={button} aria-label="Undo region edit" disabled={!historyRef.current.canUndo || busy || recording} onClick={() => replayRegionEdit('undo')}>Undo</button>
+          <button className={button} aria-label="Redo region edit" disabled={!historyRef.current.canRedo || busy || recording} onClick={() => replayRegionEdit('redo')}>Redo</button>
+          <button className={button} aria-label="Snap to beat" aria-pressed={snap} onClick={() => { setSnap(!snap); sync.publishView({ snap: !snap }); }}>Snap</button>
           <button className={`${button} ${click ? "text-emerald-300 border-emerald-500" : ""}`} aria-label="Click" aria-pressed={click} onClick={() => { setClick(!click); sync.publishView({ click: !click }); }}>Click</button>
           <button className={`${button} ${countIn ? "text-emerald-300 border-emerald-500" : ""}`} aria-label="Count in" aria-pressed={countIn} disabled={busy || recording} onClick={() => { setCountIn(!countIn); sync.publishView({ countIn: !countIn }); }}>Count in</button>
           <label className="flex items-center gap-1 text-xs text-zinc-400">Tempo
@@ -2246,7 +2324,7 @@ export function DawWidget({
                         className="absolute inset-y-0 min-w-1 touch-none overflow-hidden rounded border text-left outline-none focus:ring-1 focus:ring-white"
                         style={{
                           left: `${(region.start / timelineSeconds) * 100}%`,
-                          width: `${((region.trimEnd - region.trimStart) / timelineSeconds) * 100}%`,
+                          width: `${(regionDuration(region) / timelineSeconds) * 100}%`,
                           color: colours[index % colours.length],
                           background: `${colours[index % colours.length]}20`,
                           borderColor:
@@ -2265,6 +2343,9 @@ export function DawWidget({
                             id: region.id,
                             x: e.clientX,
                             region,
+                            gesture: crypto.randomUUID(),
+                            scrollLeft: timelineRef.current?.scrollLeft ?? 0,
+                            scrollPixelsPerSecond: pixelsPerSecond,
                             edge:
                               (e.target as HTMLElement).dataset.edge ?? "move",
                             pixelsPerSecond:
@@ -2275,36 +2356,23 @@ export function DawWidget({
                         onPointerMove={(e) => {
                           const drag = dragRef.current;
                           if (drag?.id !== region.id || !e.buttons) return;
-                          const delta =
-                            (e.clientX - drag.x) / drag.pixelsPerSecond;
+                          const timeline = timelineRef.current;
+                          if (drag.edge === "loop" && timeline) {
+                            const bounds = timeline.getBoundingClientRect();
+                            if (e.clientX > bounds.right - 30) timeline.scrollLeft += 16;
+                            else if (e.clientX < bounds.left + 260) timeline.scrollLeft -= 16;
+                          }
+                          const delta = (e.clientX - drag.x) / drag.pixelsPerSecond
+                            + (drag.edge === "loop" ? ((timeline?.scrollLeft ?? drag.scrollLeft) - drag.scrollLeft) / drag.scrollPixelsPerSecond : 0);
                           const r = drag.region;
-                          if (drag.edge === "left") {
-                            const d = Math.max(
-                              -r.start,
-                              -r.trimStart,
-                              Math.min(r.trimEnd - r.trimStart - 0.01, delta),
-                            );
-                            publishRegions(track, [
-                              {
-                                ...r,
-                                start: r.start + d,
-                                trimStart: r.trimStart + d,
-                              },
-                            ]);
-                          } else if (drag.edge === "right")
-                            publishRegions(track, [
-                              {
-                                ...r,
-                                trimEnd: Math.max(
-                                  r.trimStart + 0.01,
-                                  Math.min(
-                                    r.duration,
-                                    MAX_DAW_SECONDS - r.start + r.trimStart,
-                                    r.trimEnd + delta,
-                                  ),
-                                ),
-                              },
-                            ]);
+                          if (drag.edge === "loop") {
+                            const period = (r.trimEnd - r.trimStart) / (r.speed ?? 1);
+                            const desired = regionDuration(r) + delta;
+                            const length = Math.min(MAX_DAW_SECONDS - r.start, Math.max(period, snap ? Math.round(desired / (60 / tempo)) * 60 / tempo : desired));
+                            publishRegions(track, [{ ...r, loopDuration: length, loopOffset: r.loopOffset ?? 0 }]);
+                          } else if (drag.edge === "left" || drag.edge === "right") {
+                            publishRegions(track, [trimDawRegion(r, drag.edge, delta)]);
+                          }
                           else moveRegion(track, r, r.start + delta);
                         }}
                         onPointerUp={() => {
@@ -2313,6 +2381,7 @@ export function DawWidget({
                         onPointerCancel={() => {
                           dragRef.current = null;
                         }}
+                        onLostPointerCapture={() => { dragRef.current = null; }}
                       >
                         <span className="pointer-events-none absolute inset-x-0 top-0 h-6 truncate border-b border-current/20 bg-current/10 px-2 py-1 text-[10px]">
                           {region.name}
@@ -2342,7 +2411,7 @@ export function DawWidget({
                               buffer={buffers.get(region.sourceId)}
                               region={region}
                               width={
-                                (region.trimEnd - region.trimStart) *
+                                regionDuration(region) *
                                 pixelsPerSecond
                               }
                               offset={
@@ -2362,6 +2431,22 @@ export function DawWidget({
                           title="Trim region end"
                           className="absolute inset-y-0 right-0 w-2 cursor-ew-resize hover:bg-white/30"
                         />
+                        {!region.notes && <span
+                          data-edge="loop"
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`Loop ${region.name}`}
+                          title="Drag to repeat recording; arrow keys adjust by one repeat"
+                          className="daw-loop-handle absolute right-0 top-0 z-20 flex h-6 w-6 touch-none cursor-ew-resize items-center justify-center rounded-bl bg-zinc-950/60 text-sm hover:bg-white/30 focus:ring-1 focus:ring-white"
+                          onKeyDown={event => {
+                            if (locked || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+                            event.preventDefault(); event.stopPropagation();
+                            const period = (region.trimEnd - region.trimStart) / (region.speed ?? 1);
+                            const length = Math.min(MAX_DAW_SECONDS - region.start, Math.max(period, regionDuration(region) + (event.key === 'ArrowRight' ? period : -period)));
+                            publishRegions(track, [{ ...region, loopDuration: length, loopOffset: region.loopOffset ?? 0 }]);
+                          }}
+                        >↻</span>}
+
                       </div>
                     ))}
                     {recording && liveTake?.trackId === track.id && (
@@ -2461,6 +2546,21 @@ export function DawWidget({
               </div>
             </div>
         </div>
+        {selectedTrack && selectedRegion && !selectedRegion.notes && <DawRegionEditor
+          region={selectedRegion} tracks={active} trackId={selectedTrack.id} disabled={locked}
+          onPatch={patch => editRegion(selectedTrack, selectedRegion, patch)}
+          onGesture={active => { editorGestureRef.current = active ? crypto.randomUUID() : undefined; }}
+          onMove={target => moveRegionToTrack(selectedTrack, selectedRegion, target)}
+          actions={[
+            { label: 'Copy', action: () => { clipboard.current = selectedRegion; } },
+            { label: 'Cut', action: () => { clipboard.current = selectedRegion; deleteRegion(); } },
+            { label: 'Paste', action: () => duplicateRegion(selectedTrack, clipboard.current ?? undefined, currentPosition()), disabled: !clipboard.current },
+            { label: 'Duplicate', action: () => duplicateRegion() },
+            { label: 'Split', action: () => splitRegion(), disabled: !splitDawRegion(selectedRegion, currentPosition(), 'preview') },
+            { label: 'Join next', action: () => void joinNextRegion(selectedTrack, selectedRegion), disabled: !nextAudioRegion(selectedTrack, selectedRegion) },
+            { label: 'Delete', action: () => deleteRegion() },
+          ]}
+        />}
         {selectedTrack?.kind === "midi" && (
           <DawInstrument
             name={selectedTrack.name}
