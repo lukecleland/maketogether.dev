@@ -1,5 +1,6 @@
 import { Toast } from './Toast';
 import { DawRegionEditor } from './DawRegionEditor';
+import { DawLoopSections } from './DawLoopSections';
 import { DawRegionHistory } from '../utils/dawRegionHistory';
 import { scheduleDawClick } from '../utils/dawClick';
 import { useDawSync, type DawVoice } from "../hooks/useDawSync";
@@ -2326,9 +2327,9 @@ export function DawWidget({
                           left: `${(region.start / timelineSeconds) * 100}%`,
                           width: `${(regionDuration(region) / timelineSeconds) * 100}%`,
                           color: colours[index % colours.length],
-                          background: `${colours[index % colours.length]}20`,
+                          background: region.loopDuration === undefined ? `${colours[index % colours.length]}20` : 'transparent',
                           borderColor:
-                            selectedRegionId === region.id
+                            region.loopDuration !== undefined ? 'transparent' : selectedRegionId === region.id
                               ? "white"
                               : colours[index % colours.length],
                           opacity: track.muted ? 0.35 : 1,
@@ -2383,9 +2384,14 @@ export function DawWidget({
                         }}
                         onLostPointerCapture={() => { dragRef.current = null; }}
                       >
-                        <span className="pointer-events-none absolute inset-x-0 top-0 h-6 truncate border-b border-current/20 bg-current/10 px-2 py-1 text-[10px]">
+                        {region.loopDuration !== undefined && <DawLoopSections
+                          region={region} pixelsPerSecond={pixelsPerSecond}
+                          left={scrollLeft - 230 - region.start * pixelsPerSecond} viewport={viewportWidth}
+                          selected={selectedRegionId === region.id} colour={colours[index % colours.length]}
+                        />}
+                        {region.loopDuration === undefined && <span className="pointer-events-none absolute inset-x-0 top-0 h-6 truncate border-b border-current/20 bg-current/10 px-2 py-1 text-[10px]">
                           {region.name}
-                        </span>
+                        </span>}
                         <div className="pointer-events-none absolute inset-x-0 bottom-0 top-6">
                           {region.notes ? (
                             <svg

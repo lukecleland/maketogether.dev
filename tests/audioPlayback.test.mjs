@@ -143,6 +143,7 @@ function dawClient({ microphone } = {}) {
     '../utils/dawClick': load('src/utils/dawClick.ts'),
     '../utils/dawRegionHistory': load('src/utils/dawRegionHistory.ts'),
     './DawRegionEditor': {},
+    './DawLoopSections': {},
     '../utils/dawShortcuts': {}, './Toast': {}, './DawCreateTrackDialog': {}, './DawWaveform': {}, './DawInstrument': {}, './DawPanDial': {}, './DawMenu': {}, './DawTransportIcon': {},
     '../hooks/useDawSync': { useDawSync: (_id, _connection, onReceive, _preview, onView, onVoices) => { receive = onReceive; receiveView = onView; receiveVoices = onVoices; return { publish: (...args) => published.push(args), publishView() {}, publishVoices() {} }; } },
   }, { OfflineAudioContext: function(channels, length, sampleRate) {
