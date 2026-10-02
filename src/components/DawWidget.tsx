@@ -2322,7 +2322,7 @@ export function DawWidget({
                             regionId: region.id,
                           });
                         }}
-                        className="absolute inset-y-0 min-w-1 touch-none overflow-hidden rounded border text-left outline-none focus:ring-1 focus:ring-white"
+                        className={`absolute inset-y-0 min-w-1 touch-none overflow-hidden rounded ${region.loopDuration === undefined ? 'border' : 'border-0'} text-left outline-none focus:ring-1 focus:ring-white`}
                         style={{
                           left: `${(region.start / timelineSeconds) * 100}%`,
                           width: `${(regionDuration(region) / timelineSeconds) * 100}%`,
@@ -2443,7 +2443,7 @@ export function DawWidget({
                           tabIndex={0}
                           aria-label={`Loop ${region.name}`}
                           title="Drag to repeat recording; arrow keys adjust by one repeat"
-                          className="daw-loop-handle absolute right-0 top-0 z-20 flex h-6 w-6 touch-none cursor-ew-resize items-center justify-center rounded-bl bg-zinc-950/60 text-sm hover:bg-white/30 focus:ring-1 focus:ring-white"
+                          className="daw-loop-handle absolute right-0.5 top-0.5 z-20 flex h-6 w-6 touch-none cursor-ew-resize items-center justify-center rounded-bl bg-zinc-950/60 text-sm hover:bg-white/30 focus:ring-1 focus:ring-white"
                           onKeyDown={event => {
                             if (locked || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
                             event.preventDefault(); event.stopPropagation();
