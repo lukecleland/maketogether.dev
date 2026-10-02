@@ -877,6 +877,7 @@ export function DawWidget({
   };
 
   const waitForCountIn = async (ctx: AudioContext, start: number, request: number) => {
+    if (!aliveRef.current || request !== transportRequestRef.current) return false;
     if (!countIn) return true;
     const endsAt = Date.now() + 4 * 60000 / tempo;
     setCountInEndsAt(endsAt);

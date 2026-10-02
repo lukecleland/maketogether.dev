@@ -463,3 +463,13 @@ test('microphone count-in does not capture early and releases the stream when ca
     assert.equal(released, cancel);
   }
 });
+
+test('peer Stop while MIDI audio unlock is pending prevents a delayed count-in', async () => {
+  const client = dawClient(); const tracks = [client.track('piano')]; client.render(tracks);
+  client.view({ selected: 'track', region: null, zoom: 0, tempo: 120, countIn: true }); client.render(tracks);
+  client.button('Record').props.onClick();
+  client.receive({ revision: 3, id: 'cancel-unlock', owner: 'peer', mode: 'stopped', position: 0, at: Date.now() });
+  client.resume(); await flush(); client.render(tracks);
+  assert.ok(client.published.every(([mode]) => mode !== 'count-in' && mode !== 'recording'));
+  assert.equal(client.button('Record').props.disabled, false);
+});
