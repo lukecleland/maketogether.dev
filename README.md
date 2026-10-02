@@ -364,7 +364,17 @@ Room JSON exports include arrangement metadata but omit the audio files.
 The transport provides go-to-start, rewind, forward, stop, play/pause and record
 buttons, plus a playback/recording time display. Stop leaves the playhead in
 place; Return goes to the beginning and continues playing if playback was
-already running. Seeking on the ruler also preserves playback. Single-click a
+already running. Playback and seeking continue through empty timeline space,
+beyond the last clip, up to the existing 30-minute project limit. The ruler
+remains available in an empty project and expands without shrinking the time
+scale as playback or recording advances.
+
+**Click** toggles a 4/4 metronome during playback and recording. **Count in**
+adds four clicks before a microphone or instrument take; Stop cancels a pending
+count-in. **Tempo** sets 30–300 BPM (default 120). These controls are shared
+with connected participants and late joiners. Tempo affects the click and
+count-in; it does not stretch recordings. The click is not included in exported
+mixes. Seeking on the ruler also preserves playback. Single-click a
 track name to select it, and double-click (or choose **Rename**) to edit it.
 
 Shortcuts apply only to the focused DAW window. Text fields, number fields and

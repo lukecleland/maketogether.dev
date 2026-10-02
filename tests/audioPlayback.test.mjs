@@ -105,7 +105,8 @@ test('either participant can immediately override remote audio controls without 
 function dawClient({ microphone } = {}) {
   const refs = [], states = [], schedules = [], effects = [], published = [], notes = [];
   let stateIndex = 0, refIndex = 0, now = 0, receive, receiveView, receiveVoices, resume;
-  const recorders = [], imported = [], trackUpdates = [];
+  const recorders = [], imported = [], trackUpdates = [], timers = new Map();
+  let timerId = 0, frame;
   class Recorder {
     constructor() { this.state = 'inactive'; recorders.push(this); }
     start() { this.state = 'recording'; }
@@ -143,7 +144,8 @@ function dawClient({ microphone } = {}) {
     '../hooks/useDawSync': { useDawSync: (_id, _connection, onReceive, _preview, onView, onVoices) => { receive = onReceive; receiveView = onView; receiveVoices = onVoices; return { publish: (...args) => published.push(args), publishView() {}, publishVoices() {} }; } },
   }, { AudioContext: function () { return ctx; }, performance: { now: () => now }, crypto: { randomUUID: () => 'edit' },
     navigator: { mediaDevices: { getUserMedia: microphone } }, MediaRecorder: Recorder, File: TakeFile,
-    setTimeout: () => 1, clearTimeout() {} });
+    setTimeout: fn => { timers.set(++timerId, fn); return timerId; }, clearTimeout: id => timers.delete(id),
+    requestAnimationFrame: fn => { frame = fn; return 1; }, cancelAnimationFrame() {} });
   const track = name => ({ id: 'track', name, kind: 'midi', volume: 1, pan: 0, muted: false, solo: false, revision: 1, editId: name,
     regions: [{ id: 'region', sourceId: 'midi', name, duration: 120, trimStart: 0, trimEnd: 120, start: 0, revision: 1, editId: name, notes: [{ pitch: 60, start: 0, duration: 120, velocity: 0.8 }] }] });
   let tree;
@@ -154,6 +156,8 @@ function dawClient({ microphone } = {}) {
     walk(tree); return found;
   };
   return { track, render, button, schedules, effects, published, notes, ctx, recorders, imported, trackUpdates,
+    frame: () => frame?.(),
+    finishTimer: () => { const entry = timers.entries().next().value; assert.ok(entry); timers.delete(entry[0]); entry[1](); },
     voices: (owner, voices) => receiveVoices(owner, voices),
     view: view => receiveView(view),
     receive: activity => receive(activity),
@@ -399,4 +403,73 @@ test('canvas recording autoplay retry preserves shared playback intent without b
   assert.equal(client.video.paused, false);
   assert.ok(client.video.currentTime >= 13);
   assert.equal(client.sent.length, 0);
+});
+
+
+test('empty DAW plays and seeks past clips without resetting; the frame clock continues', async () => {
+  const client = dawClient(); client.render([]);
+  assert.equal(client.button('Play').props.disabled, false);
+  client.button('Forward').props.onClick(); client.render([]);
+  client.button('Play').props.onClick(); client.resume(); await flush(); client.render([]);
+  const animation = client.effects.find(effect => effect.deps?.length === 3 && effect.deps[0] === true);
+  assert.ok(animation); const cleanup = animation.fn();
+  client.ctx.currentTime = 145; client.frame(); client.render([]);
+  assert.equal(client.button('Pause').props['aria-pressed'], true);
+  client.button('Forward').props.onClick();
+  assert.deepEqual(client.published.at(-1), ['playing', 147]);
+  cleanup();
+});
+
+test('a MIDI count-in waits four beats and peer Stop cancels it before a take starts', async () => {
+  for (const cancel of [false, true]) {
+    const client = dawClient(); const tracks = [client.track('piano')]; client.render(tracks);
+    client.view({ selected: 'track', region: null, zoom: 0, tempo: 120, click: false, countIn: true }); client.render(tracks);
+    client.button('Record').props.onClick(); client.resume(); await flush(); client.render(tracks);
+    assert.equal(client.published.at(-1)[0], 'count-in');
+    assert.equal(client.published.at(-1)[3] - Date.now() > 1900, true);
+    assert.ok(client.published.every(([mode]) => mode !== 'recording'));
+    if (cancel) client.receive({ revision: 3, id: 'stop-count', owner: 'peer', mode: 'stopped', position: 0, at: Date.now() });
+    else client.finishTimer();
+    await flush(); client.render(tracks);
+    assert.equal(client.published.some(([mode]) => mode === 'recording'), !cancel);
+    assert.equal(client.button('Record')?.props.disabled ?? false, false);
+  }
+});
+
+test('remote Play in empty space retains its position and records at that position', async () => {
+  const client = dawClient(); const tracks = [client.track('piano')]; client.render(tracks);
+  client.view({ selected: 'track', region: null, zoom: 0 }); client.render(tracks);
+  client.receive({ revision: 2, id: 'empty-play', owner: 'peer', mode: 'playing', position: 180, at: Date.now() });
+  client.resume(); await flush(); client.render(tracks);
+  assert.equal(client.schedules.at(-1).position >= 180, true);
+  client.button('Record').props.onClick();
+  assert.equal(client.published.at(-1)[0], 'recording');
+  assert.equal(client.published.at(-1)[1] >= 180, true);
+});
+
+
+test('microphone count-in does not capture early and releases the stream when cancelled', async () => {
+  for (const cancel of [false, true]) {
+    let released = false;
+    const stream = { getTracks: () => [{ stop() { released = true; } }] };
+    const client = dawClient({ microphone: async () => stream }); client.render([]);
+    client.view({ selected: null, region: null, zoom: 0, tempo: 60, countIn: true, click: false }); client.render([]);
+    client.button('Record').props.onClick(); client.resume(); await flush(); client.render(client.trackUpdates);
+    assert.equal(client.recorders[0].state, 'inactive');
+    assert.equal(client.published.at(-1)[0], 'count-in');
+    if (cancel) client.button('Stop').props.onClick(); else client.finishTimer();
+    await flush();
+    assert.equal(client.recorders[0].state, cancel ? 'inactive' : 'recording');
+    assert.equal(released, cancel);
+  }
+});
+
+test('peer Stop while MIDI audio unlock is pending prevents a delayed count-in', async () => {
+  const client = dawClient(); const tracks = [client.track('piano')]; client.render(tracks);
+  client.view({ selected: 'track', region: null, zoom: 0, tempo: 120, countIn: true }); client.render(tracks);
+  client.button('Record').props.onClick();
+  client.receive({ revision: 3, id: 'cancel-unlock', owner: 'peer', mode: 'stopped', position: 0, at: Date.now() });
+  client.resume(); await flush(); client.render(tracks);
+  assert.ok(client.published.every(([mode]) => mode !== 'count-in' && mode !== 'recording'));
+  assert.equal(client.button('Record').props.disabled, false);
 });

@@ -114,3 +114,50 @@ test('held voices expire, are released on cleanup, and disconnected transport st
   r.advance(6500);
   assert.equal(c.received.at(-1).mode, 'stopped');
 });
+
+
+test('tempo, click, count-in settings and pending count-in reach late joiners; Stop supersedes countdown', () => {
+  const r = room(), a = r.add(), b = r.add(); r.flush();
+  a.sync.publishView({ tempo: 90, click: true, countIn: true });
+  a.sync.publish('count-in', 150, undefined, 10000 + 4 * 60000 / 90); r.flush();
+  assert.equal(b.views.at(-1).tempo, 90);
+  const c = r.add(); r.flush();
+  assert.equal(c.views.at(-1).click, true);
+  assert.equal(c.views.at(-1).countIn, true);
+  assert.equal(c.received.at(-1).mode, 'count-in');
+  b.sync.publish('stopped', 150); r.flush();
+  assert.equal(a.received.at(-1).mode, 'stopped');
+  assert.equal(c.received.at(-1).mode, 'stopped');
+  const count = c.views.length;
+  c.listener({ type: 'daw-view', panelId: 'daw', view: { ...c.views.at(-1), revision: 999, tempo: 0 } });
+  assert.equal(c.views.length, count);
+});
+
+
+test('count-in retains the chosen recording position and rejects unbounded countdowns', () => {
+  const { validDawActivity, dawActivityPosition } = load('src/utils/dawSync.ts');
+  const activity = { revision: 1, id: 'count', owner: 'a', mode: 'count-in', position: 150, at: 10000, countInEndsAt: 12000 };
+  assert.equal(validDawActivity(activity), true);
+  assert.equal(dawActivityPosition(activity, 11500), 150);
+  for (const countInEndsAt of [undefined, NaN, 9999, 19000]) {
+    assert.equal(validDawActivity({ ...activity, countInEndsAt }), false);
+  }
+});
+
+test('click synthesis accents the first beat and cleans up without touching arrangement sources', () => {
+  const { scheduleDawClick } = load('src/utils/dawClick.ts');
+  const oscillators = [], gains = [];
+  const ctx = {
+    destination: {},
+    createOscillator() { const node = { frequency: {}, connect(target) { this.target = target; }, start(at) { this.startAt = at; }, stop(at) { this.stopAt = at; }, disconnect() { this.disconnected = true; } }; oscillators.push(node); return node; },
+    createGain() { const node = { gain: { setValueAtTime() {}, exponentialRampToValueAtTime() {} }, connect(target) { this.target = target; }, disconnect() { this.disconnected = true; } }; gains.push(node); return node; },
+  };
+  scheduleDawClick(ctx, 10, 0); scheduleDawClick(ctx, 10.5, 1);
+  assert.ok(oscillators[0].frequency.value > oscillators[1].frequency.value);
+  assert.equal(oscillators[0].startAt, 10);
+  assert.equal(oscillators[0].stopAt, 10.05);
+  assert.equal(gains[0].target, ctx.destination);
+  oscillators[0].onended();
+  assert.equal(oscillators[0].disconnected, true);
+  assert.equal(gains[0].disconnected, true);
+});

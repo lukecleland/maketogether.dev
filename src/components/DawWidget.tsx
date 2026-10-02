@@ -1,4 +1,5 @@
 import { Toast } from './Toast';
+import { scheduleDawClick } from '../utils/dawClick';
 import { useDawSync, type DawVoice } from "../hooks/useDawSync";
 import type { RoomDataConnection } from "../hooks/usePeer";
 import { dawActivityPosition, type DawActivity } from "../utils/dawSync";
@@ -89,7 +90,7 @@ export function DawWidget({
     return Math.min(
       MAX_DAW_SECONDS,
       clock.position +
-        (activity.mode === "stopped"
+        ((activity.mode === "stopped" || activity.mode === "count-in")
           ? 0
           : (performance.now() - clock.at) / 1000),
     );
@@ -130,6 +131,12 @@ export function DawWidget({
   const [playhead, setPlayhead] = useState(0);
   const [audioBlocked, setAudioBlocked] = useState(false);
   const [playing, setPlaying] = useState(false);
+  const [tempo, setTempo] = useState(120);
+  const [click, setClick] = useState(false);
+  const [clickSchedule, setClickSchedule] = useState(0);
+  const [countIn, setCountIn] = useState(false);
+  const [countInEndsAt, setCountInEndsAt] = useState<number | null>(null);
+  const countInCancelRef = useRef<(() => void) | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [recording, setRecording] = useState(false);
@@ -208,7 +215,7 @@ export function DawWidget({
     Math.ceil((cursor + 5) / 30) * 30,
   );
   const fitWidth = Math.max(100, viewportWidth - 230);
-  const timelineWidth = fitWidth * 2 ** (zoom / 15);
+  const timelineWidth = fitWidth * (timelineSeconds / 30) * 2 ** (zoom / 15);
   const pixelsPerSecond = timelineWidth / timelineSeconds;
   const rulerStep =
     [1, 2, 5, 10, 15, 30, 60, 120, 300, 600].find(
@@ -248,6 +255,8 @@ export function DawWidget({
     sourcesRef.current = [];
   };
   const stop = (reset = false, share = true) => {
+    countInCancelRef.current?.();
+    setCountInEndsAt(null);
     const position = reset ? 0 : currentPosition();
     if (share) {
       sync.publish("stopped", position);
@@ -267,6 +276,7 @@ export function DawWidget({
     const remoteVoices = remoteVoicesRef.current;
     return () => {
       aliveRef.current = false;
+      countInCancelRef.current?.();
       transportRef.current.active = false;
       sourcesRef.current.forEach((source) => {
         try {
@@ -372,6 +382,8 @@ export function DawWidget({
     transport.at = ctx.currentTime;
   }, [tracks, buffers, remotePosition]);
 
+  const publishTimelineEnd = useEffectEvent(() => sync.publish("stopped", MAX_DAW_SECONDS));
+
   // One animation clock owns the visible playhead. Network snapshots and audio
   // scheduling must not write older positions over an already-rendered frame.
   useEffect(() => {
@@ -395,7 +407,7 @@ export function DawWidget({
             remote?.mode === "playing"
               ? remotePosition(remote)
               : t.offset + contextRef.current!.currentTime - t.at;
-          if (position >= duration) {
+          if (position >= MAX_DAW_SECONDS) {
             t.active = false;
             sourcesRef.current.forEach((source) => {
               try {
@@ -406,7 +418,8 @@ export function DawWidget({
             });
             sourcesRef.current = [];
             setPlaying(false);
-            setPlayhead(0);
+            setPlayhead(MAX_DAW_SECONDS);
+            if (!remote) publishTimelineEnd();
             return;
           }
           setPlayhead(position);
@@ -416,7 +429,7 @@ export function DawWidget({
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [playing, recording, duration, remotePosition]);
+  }, [playing, recording, remotePosition]);
 
   useEffect(() => {
     if (!recording || remoteActivityRef.current?.mode === "recording") return;
@@ -433,7 +446,7 @@ export function DawWidget({
   }, [recording]);
 
   useEffect(() => {
-    if (!recording || !liveTake || !timelineRef.current) return;
+    if ((!recording && !playing) || !timelineRef.current) return;
     const node = timelineRef.current;
     const x = 230 + (cursor / timelineSeconds) * timelineWidth;
     if (
@@ -441,7 +454,7 @@ export function DawWidget({
       x < node.scrollLeft + 230
     )
       node.scrollLeft = Math.max(0, x - node.clientWidth + 80);
-  }, [recording, liveTake, cursor, timelineSeconds, timelineWidth]);
+  }, [recording, playing, cursor, timelineSeconds, timelineWidth]);
 
   const revision = () => {
     revisionRef.current =
@@ -577,17 +590,54 @@ export function DawWidget({
   const currentPosition = () => {
     const transport = transportRef.current;
     if (remoteActivityRef.current?.mode === "playing")
-      return Math.min(duration, remotePosition(remoteActivityRef.current));
+      return remotePosition(remoteActivityRef.current);
     return transport.active && contextRef.current
       ? Math.min(
-          duration,
+          MAX_DAW_SECONDS,
           transport.offset + contextRef.current.currentTime - transport.at,
         )
       : playhead;
   };
 
+  const clickPosition = useEffectEvent(() => {
+    if (countInEndsAt) return 4 * 60 / tempo - (countInEndsAt - Date.now()) / 1000;
+    if (recording) {
+      const activity = remoteActivityRef.current;
+      return activity?.mode === 'recording' ? remotePosition(activity)
+        : (liveTake?.start ?? 0) + (performance.now() - recordingStartedRef.current) / 1000;
+    }
+    return currentPosition();
+  });
+  useEffect(() => {
+    if (!countInEndsAt && !(click && (playing || recording))) return;
+    const nodes = new Set<AudioScheduledSourceNode>();
+    let lastBeat = -1;
+    const interval = 60 / tempo;
+    const tick = () => {
+      const ctx = contextRef.current;
+      if (!ctx || dawAudioNeedsGesture(ctx)) return;
+      if (countInEndsAt && Date.now() >= countInEndsAt) return;
+      const position = Math.max(0, clickPosition());
+      const beat = Math.ceil((position - 0.02) / interval);
+      if (beat <= lastBeat || (countInEndsAt && beat >= 4)) return;
+      const delay = beat * interval - position;
+      if (delay > 0.12) return;
+      lastBeat = beat;
+      const node = scheduleDawClick(ctx, ctx.currentTime + Math.max(0, delay), beat);
+      nodes.add(node);
+      const ended = node.onended;
+      node.onended = event => { nodes.delete(node); ended?.call(node, event); };
+    };
+    tick();
+    const timer = setInterval(tick, 25);
+    return () => {
+      clearInterval(timer);
+      for (const node of nodes) { try { node.stop(); } catch { /* Finished. */ } }
+    };
+  }, [click, tempo, playing, recording, countInEndsAt, clickSchedule]);
+
   const playFrom = async (position: number, share = true) => {
-    if (share && (recording || busy || !active.length || missing)) return;
+    if (share && (recording || busy || missing)) return;
     const request = ++transportRequestRef.current;
     try {
       const ctx = context();
@@ -602,13 +652,7 @@ export function DawWidget({
           ? remotePosition(remoteActivityRef.current)
           : position;
       const currentTracks = tracksRef.current;
-      const currentDuration = dawEnd(currentTracks);
-      if (!share && current >= currentDuration) {
-        stopSources();
-        transportRef.current.active = false;
-        return;
-      }
-      const offset = Math.max(0, current >= currentDuration ? 0 : current);
+      const offset = Math.max(0, Math.min(MAX_DAW_SECONDS, current));
       stopSources();
       sourcesRef.current = scheduleDaw(
         ctx,
@@ -618,6 +662,7 @@ export function DawWidget({
         ctx.currentTime,
       );
       transportRef.current = { active: true, at: ctx.currentTime, offset };
+      setClickSchedule(previous => previous + 1);
       if (share) {
         setPlayhead(offset);
         setPlaying(true);
@@ -831,6 +876,20 @@ export function DawWidget({
     else stop();
   };
 
+  const waitForCountIn = async (ctx: AudioContext, start: number, request: number) => {
+    if (!aliveRef.current || request !== transportRequestRef.current) return false;
+    if (!countIn) return true;
+    const endsAt = Date.now() + 4 * 60000 / tempo;
+    setCountInEndsAt(endsAt);
+    sync.publish("count-in", start, undefined, endsAt);
+    await new Promise<void>(resolve => {
+      const timer = setTimeout(() => { countInCancelRef.current = null; resolve(); }, endsAt - Date.now());
+      countInCancelRef.current = () => { clearTimeout(timer); countInCancelRef.current = null; resolve(); };
+    });
+    if (request === transportRequestRef.current) setCountInEndsAt(null);
+    return aliveRef.current && request === transportRequestRef.current && ctx.state === 'running';
+  };
+
   const startRecording = async () => {
     if (recording) {
       finishRecording();
@@ -845,6 +904,17 @@ export function DawWidget({
     setError("");
     stop();
     if (selectedTrack?.kind === "midi") {
+      const request = ++transportRequestRef.current;
+      if (countIn || click) {
+        setBusy(true);
+        try {
+          const ctx = context();
+          await resumeDawAudio(ctx, true);
+          if (dawAudioNeedsGesture(ctx)) throw new Error("Audio blocked");
+          if (!await waitForCountIn(ctx, start, request)) return;
+        } catch { setError("Tap Enable audio, then try recording again."); return; }
+        finally { if (aliveRef.current) setBusy(false); }
+      }
       recordingStartedRef.current = performance.now();
       midiTake.current = {
         trackId: selectedTrack.id,
@@ -965,6 +1035,12 @@ export function DawWidget({
         );
         void addFiles([file], null, start, target.id);
       };
+      if (!await waitForCountIn(ctx, start, request)) {
+        stream.getTracks().forEach(t => t.stop());
+        source.disconnect(); analyser.disconnect();
+        if (request === transportRequestRef.current) setLiveTake(null);
+        return;
+      }
       recorder.start(1000);
       recordingStartedRef.current = performance.now();
       setRecordingSeconds(0);
@@ -1075,7 +1151,19 @@ export function DawWidget({
       }
       remoteActivityRef.current = activity;
       const position = remotePosition(activity);
-      if (activity.mode === "recording") {
+      if (activity.mode === "count-in") {
+        setCountInEndsAt(activity.countInEndsAt!);
+        setRecording(false); setLiveTake(null);
+        if (changed) {
+          try { void resumeDawAudio(context()).catch(() => setAudioBlocked(true)); }
+          catch { setAudioBlocked(true); }
+        }
+        setPlayhead(activity.position);
+      } else if (activity.mode === "recording") {
+        if (changed && click) {
+          try { void resumeDawAudio(context()).catch(() => setAudioBlocked(true)); }
+          catch { setAudioBlocked(true); }
+        }
         setRecording(true);
         setLiveTake({ trackId: activity.trackId!, start: activity.position });
         if (changed) setRecordingSeconds(position - activity.position);
@@ -1085,8 +1173,8 @@ export function DawWidget({
         setRecording(false);
         setLiveTake(null);
         if (activity.mode === "playing") {
-          setPlaying(position < duration);
-          if (changed) setPlayhead(position < duration ? position : 0);
+          setPlaying(position < MAX_DAW_SECONDS);
+          if (changed) setPlayhead(position);
           // Correct drift without restarting audio on every heartbeat.
           if (
             changed ||
@@ -1098,7 +1186,7 @@ export function DawWidget({
                 position,
             ) > 0.3
           )
-            if (position < duration) void playFrom(position, false);
+            if (position < MAX_DAW_SECONDS) void playFrom(position, false);
         } else setPlayhead(position);
       }
     },
@@ -1129,6 +1217,9 @@ export function DawWidget({
       setSelectedLocal(view.selected);
       setSelectedRegionIdLocal(view.region);
       setZoomLocal(view.zoom);
+      setTempo(view.tempo ?? 120);
+      setClick(view.click ?? false);
+      setCountIn(view.countIn ?? false);
     },
     receiveVoices,
   );
@@ -1160,9 +1251,9 @@ export function DawWidget({
 
   const seek = (position: number) => {
     if (recording || busy) return;
-    const next = Math.max(0, Math.min(duration, position));
+    const next = Math.max(0, Math.min(MAX_DAW_SECONDS, position));
     setPlayhead(next);
-    if ((playing || remoteActivityRef.current?.mode === "playing" || transportRef.current.active) && next < duration) {
+    if ((playing || remoteActivityRef.current?.mode === "playing" || transportRef.current.active) && next < MAX_DAW_SECONDS) {
       // Share the seek immediately, even if this browser cannot output audio yet.
       stop(false, false);
       remoteActivityRef.current = null;
@@ -1734,7 +1825,7 @@ export function DawWidget({
               title="Play / pause (Space)"
               onClick={togglePlay}
               disabled={
-                (!playing && (!active.length || missing)) || recording || busy
+                (!playing && missing) || recording || busy
               }
             >
               <DawTransportIcon name={playing ? "pause" : "play"} />
@@ -1762,9 +1853,17 @@ export function DawWidget({
               {time(recording ? recordingSeconds : playhead)}
             </output>
             <span className="block text-[9px] uppercase tracking-widest text-zinc-500">
-              {recording ? "Recording" : playing ? "Playing" : "Stopped"}
+              {countInEndsAt ? "Count in" : recording ? "Recording" : playing ? "Playing" : "Stopped"}
             </span>
           </div>
+          <button className={`${button} ${click ? "text-emerald-300 border-emerald-500" : ""}`} aria-label="Click" aria-pressed={click} onClick={() => { setClick(!click); sync.publishView({ click: !click }); }}>Click</button>
+          <button className={`${button} ${countIn ? "text-emerald-300 border-emerald-500" : ""}`} aria-label="Count in" aria-pressed={countIn} disabled={busy || recording} onClick={() => { setCountIn(!countIn); sync.publishView({ countIn: !countIn }); }}>Count in</button>
+          <label className="flex items-center gap-1 text-xs text-zinc-400">Tempo
+            <input aria-label="Tempo" type="number" min="30" max="300" value={tempo} disabled={busy || recording || countInEndsAt !== null} className="w-16 rounded border border-zinc-700 bg-zinc-950 p-1 text-white" onChange={event => {
+              const value = Number(event.target.value);
+              if (Number.isFinite(value) && value >= 30 && value <= 300) { setTempo(value); sync.publishView({ tempo: value }); }
+            }} /> BPM
+          </label>
           <button
             className={button}
             onClick={() => setCreateTrackOpen(true)}
@@ -1857,18 +1956,7 @@ export function DawWidget({
             setMenu({ kind: "DAW", x: event.clientX, y: event.clientY });
           }}
         >
-          {!active.length ? (
-            <div className="flex h-full min-h-32 flex-col items-center justify-center gap-2 px-5 text-center">
-              <span className="text-3xl text-emerald-400">♫</span>
-              <p className="text-sm">Make Music Together</p>
-              <p className="max-w-sm text-xs text-zinc-500">
-                Drop recordings here, add audio files, or record a take. Each
-                track can hold multiple audio regions. Use Track → New Audio
-                Track to start.
-              </p>
-            </div>
-          ) : (
-            <div className="relative" style={{ width: timelineWidth + 230 }}>
+            <div className="relative min-h-32" style={{ width: timelineWidth + 230 }}>
               <div className="flex h-5 border-b border-zinc-800 text-[9px] text-zinc-500">
                 <div className="sticky left-0 z-20 w-[230px] shrink-0 bg-zinc-900 px-3 py-0.5">
                   {active.length} tracks · {time(duration)}
@@ -1901,6 +1989,7 @@ export function DawWidget({
                   )}
                 </div>
               </div>
+              {!active.length && <p className="sticky left-0 w-fit max-w-sm px-5 py-8 text-xs text-zinc-500">Make Music Together. Seek anywhere on the ruler, then record a take or add audio.</p>}
               {active.map((track, index) => (
                 <div
                   key={track.id}
@@ -2371,7 +2460,6 @@ export function DawWidget({
                 />
               </div>
             </div>
-          )}
         </div>
         {selectedTrack?.kind === "midi" && (
           <DawInstrument
