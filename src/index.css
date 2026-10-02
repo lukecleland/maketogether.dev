@@ -1,5 +1,21 @@
 @import "tailwindcss";
 
+/* Keep bottom resize corners finger-sized, including when the canvas is zoomed out. */
+@media (any-pointer: coarse) {
+  .draggable-panel [data-panel-resize="bottom-left"],
+  .draggable-panel [data-panel-resize="bottom-right"] {
+    width: calc(44px / var(--panel-resize-scale, 1));
+    height: calc(44px / var(--panel-resize-scale, 1));
+    bottom: calc(-12px / var(--panel-resize-scale, 1));
+  }
+  .draggable-panel [data-panel-resize="bottom-left"] {
+    left: calc(-12px / var(--panel-resize-scale, 1));
+  }
+  .draggable-panel [data-panel-resize="bottom-right"] {
+    right: calc(-12px / var(--panel-resize-scale, 1));
+  }
+}
+
 @font-face {
   font-family: "Outfit";
   src: url("/fonts/outfit-latin.ttf") format("truetype");
