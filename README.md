@@ -42,8 +42,8 @@ between participants over WebRTC; PeerJS Cloud is used for signalling.
   play, pause and seek state is shared
 - **DAW** — a shared multitrack window for uploaded audio and microphone takes;
   arrange waveform clips, trim, duplicate, rename, mute/solo, adjust gain and pan,
-  and export a stereo WAV mix. Edits and source recordings are shared with peers;
-  playback and recording transport stay local.
+  and export a stereo WAV mix. Edits, mixer controls, playback and recording
+  transport are shared with peers, along with completed takes and source files.
 - **Audio player** — compact Digital player by default, with a theme dropdown
   for Record player and Tape deck. Tape reels rotate during playback and
   mechanical controls include ten-second rewind/forward. Themes, play, pause
@@ -392,7 +392,10 @@ Track edits, track/region selection, timeline zoom, playback, pause, seeking and
 recording activity are shared with every connected participant. Any participant
 can stop a take; only the person who starts it captures their microphone. Live
 waveforms and MIDI notes appear while recording, and the completed take/audio
-file is shared as before. Instrument-key previews are audible to peers too.
+file is shared as before. Instrument-key previews are audible to peers too,
+including mixer changes to held notes. Peer Stop commands cancel pending
+microphone permission requests and finish active takes without overwriting a
+newer transport command when the completed recording is processed.
 Late joiners catch up to the current transport, with periodic drift correction.
 If the transport owner disconnects, peers stop after an eight-second timeout;
 held instrument previews expire after two seconds without updates. Session
@@ -402,6 +405,13 @@ playhead still advances. This is network-synchronized playback, not sample-accur
 remote recording or live microphone audio streaming. Keyboard focus, menus,
 file pickers and exports stay local. Recordings use the selected track, or create
 one if none is selected.
+
+Completed canvas recordings retain shared play/pause/seek commands while their
+files transfer or metadata loads. Playing seeks preserve the playback state;
+autoplay-blocked participants can use **Enable audio** to catch up. A local
+interaction with the video controls can override a peer's command immediately.
+Canvas capture itself records the initiating participant's visible workspace;
+its Record/Pause/Stop capture controls remain local.
 
 ## Versioning
 

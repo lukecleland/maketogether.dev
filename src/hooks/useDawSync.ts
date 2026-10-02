@@ -88,6 +88,7 @@ export function useDawSync(
   };
   useEffect(() => {
     if (!connection) return;
+    const heldRemoteVoices = remoteVoices.current;
     const listener = (raw: unknown) => {
       if (!raw || typeof raw !== "object") return;
       const message = raw as {
@@ -238,6 +239,8 @@ export function useDawSync(
     return () => {
       clearInterval(timer);
       connection.off("data", listener);
+      for (const peer of heldRemoteVoices.keys()) onVoices(peer, []);
+      heldRemoteVoices.clear();
     };
   }, [connection, id]);
   return { publish, publishView, publishVoices };

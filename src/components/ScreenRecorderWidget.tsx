@@ -3,6 +3,7 @@ import { DockButton } from "./Dock";
 import { useYouTubeSync, type SyncMessage } from "../hooks/useYouTubeSync";
 import type { RoomDataConnection } from "../hooks/usePeer";
 import type { PanelPlayback, RecordingClip } from "../types/panels";
+import { SharedAudioPlayback } from "../utils/sharedAudioPlayback";
 
 export interface RecordingStatus {
   recording: boolean;
@@ -40,10 +41,6 @@ function recordingMimeType(): string {
     "video/mp4",
   ];
   return candidates.find(type => MediaRecorder.isTypeSupported(type)) ?? "";
-}
-
-function syncedTime(time: number, sentAt?: number): number {
-  return sentAt ? time + Math.max(0, Date.now() - sentAt) / 1000 : time;
 }
 
 async function createCanvasCapture(target: HTMLElement): Promise<CaptureSession> {
@@ -116,7 +113,16 @@ export function ScreenRecorderWidget({
   const urlsRef = useRef<Map<string, string>>(new Map());
   const syncUntilRef = useRef(0);
   const onStatusChangeRef = useRef(onStatusChange);
-  const initialPlaybackRef = useRef(initialPlayback);
+  const pendingPlaybackRef = useRef<{ recordingId: string; time: number; playing: boolean; at?: number } | null>(
+    initialPlayback?.recordingId ? { ...initialPlayback, recordingId: initialPlayback.recordingId } : null,
+  );
+  const loadedClipRef = useRef<string | null>(null);
+  const [audioBlocked, setAudioBlocked] = useState(false);
+  const playbackRef = useRef<SharedAudioPlayback | null>(null);
+  if (!playbackRef.current) playbackRef.current = new SharedAudioPlayback(
+    () => !videoRef.current?.srcObject && loadedClipRef.current === pendingPlaybackRef.current?.recordingId ? videoRef.current : null,
+    setAudioBlocked,
+  );
   const onPlaybackChangeRef = useRef(onPlaybackChange);
 
   useEffect(() => {
@@ -138,16 +144,10 @@ export function ScreenRecorderWidget({
     video.srcObject = null;
     video.muted = false;
     const url = urlFor(clip);
+    loadedClipRef.current = clip.id;
     if (video.src !== url) {
       video.src = url;
       video.load();
-      video.addEventListener("loadedmetadata", () => {
-        const saved = initialPlaybackRef.current;
-        if (!saved || saved.recordingId !== clip.id) return;
-        video.currentTime = Math.min(saved.time, video.duration || saved.time);
-        if (saved.playing) void video.play().catch(() => {});
-        initialPlaybackRef.current = undefined;
-      }, { once: true });
     }
     setSelectedId(clip.id);
   }, [urlFor]);
@@ -198,21 +198,19 @@ export function ScreenRecorderWidget({
       message.type !== "recording-seek"
     ) return;
     if (message.id !== id) return;
+    const playing = message.type === "recording-play" || (message.type === "recording-seek" && message.playing === true);
+    pendingPlaybackRef.current = {
+      recordingId: message.recordingId,
+      time: message.type === "recording-select" ? 0 : message.time,
+      playing,
+      at: message.type === "recording-select" ? undefined : message.at,
+    };
+    setSelectedId(message.recordingId);
     const clip = clips.find(item => item.id === message.recordingId);
-    if (!clip) return;
-    showClip(clip);
-    if (message.type === "recording-select") return;
-
-    const video = videoRef.current;
-    if (!video) return;
+    if (clip && !recording) showClip(clip);
     syncUntilRef.current = Date.now() + 600;
-    const requested = message.type === "recording-play" || (message.type === "recording-seek" && message.playing)
-      ? syncedTime(message.time, message.at)
-      : message.time;
-    video.currentTime = Math.max(0, Math.min(requested, Number.isFinite(video.duration) ? video.duration : requested));
-    if (message.type === "recording-play") void video.play().catch(() => {});
-    if (message.type === "recording-pause") video.pause();
-  }, [clips, id, showClip]);
+    playbackRef.current!.set(pendingPlaybackRef.current);
+  }, [clips, id, showClip, recording]);
 
   const { sendSync } = useYouTubeSync({ dataConnection, onRemoteSync: handleRemoteSync });
 
@@ -225,6 +223,8 @@ export function ScreenRecorderWidget({
 
   const startCapture = async () => {
     setErrors([]);
+    pendingPlaybackRef.current = null;
+    playbackRef.current!.reset();
     let capture: CaptureSession | null = null;
     try {
       const canvasElement = getCanvasElement();
@@ -297,7 +297,10 @@ export function ScreenRecorderWidget({
 
   const selected = clips.find(clip => clip.id === selectedId) ?? null;
   const selectClip = (clip: RecordingClip) => {
+    pendingPlaybackRef.current = { recordingId: clip.id, time: 0, playing: false };
+    playbackRef.current!.reset();
     showClip(clip);
+    playbackRef.current!.set(pendingPlaybackRef.current);
     sendSync({ type: "recording-select", id, recordingId: clip.id });
   };
 
@@ -319,16 +322,30 @@ export function ScreenRecorderWidget({
           ref={videoRef}
           playsInline
           controls={!recording && !!selected}
+          onLoadedMetadata={() => {
+            const pending = pendingPlaybackRef.current;
+            if (!pending || pending.recordingId !== loadedClipRef.current || recording) return;
+            syncUntilRef.current = Date.now() + 600;
+            playbackRef.current!.set(pending);
+          }}
+          onPointerDown={() => { syncUntilRef.current = 0; }}
+          onKeyDown={() => { syncUntilRef.current = 0; }}
           onPlay={event => {
-            if (!selected || Date.now() < syncUntilRef.current) return;
+            if (recording || !selected || Date.now() < syncUntilRef.current) return;
+            pendingPlaybackRef.current = null;
+            playbackRef.current!.reset();
             sendSync({ type: "recording-play", id, recordingId: selected.id, time: event.currentTarget.currentTime, at: Date.now() });
           }}
           onPause={event => {
-            if (!selected || Date.now() < syncUntilRef.current) return;
+            if (recording || !selected || Date.now() < syncUntilRef.current) return;
+            pendingPlaybackRef.current = null;
+            playbackRef.current!.reset();
             sendSync({ type: "recording-pause", id, recordingId: selected.id, time: event.currentTarget.currentTime, at: Date.now() });
           }}
           onSeeked={event => {
-            if (!selected || Date.now() < syncUntilRef.current) return;
+            if (recording || !selected || Date.now() < syncUntilRef.current) return;
+            pendingPlaybackRef.current = null;
+            playbackRef.current!.reset();
             sendSync({ type: "recording-seek", id, recordingId: selected.id, time: event.currentTarget.currentTime, at: Date.now(), playing: !event.currentTarget.paused });
           }}
           className="h-full w-full bg-black object-contain"
@@ -337,6 +354,10 @@ export function ScreenRecorderWidget({
       </div>
 
       <div className="no-drag flex shrink-0 items-center gap-2 border-t border-zinc-800 bg-zinc-900 px-3 py-2">
+        {audioBlocked && <button onClick={() => {
+          syncUntilRef.current = Date.now() + 600;
+          playbackRef.current!.apply();
+        }} className="rounded-lg bg-brand-600 px-3 py-1.5 text-xs font-semibold text-white">Enable audio</button>}
         <button onClick={() => void startCapture()} disabled={recording} className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-500 disabled:opacity-40">Record canvas</button>
         <button onClick={togglePause} disabled={!recording} className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-40">{paused ? "Resume" : "Pause"}</button>
         <button onClick={stopCapture} disabled={!recording} className="rounded-lg bg-zinc-800 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-700 disabled:opacity-40">Stop</button>
