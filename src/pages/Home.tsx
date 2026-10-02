@@ -10,16 +10,16 @@ interface HomeProps {
 
 export function Home({ onStart }: HomeProps) {
   const [rotation, setRotation] = useState(() => ({
-    words: ['make', ...buildBrandWords().filter(word => word !== 'make')],
+    words: buildBrandWords(),
     index: 0,
   }));
   const word = rotation.words[rotation.index];
   useEffect(() => {
     const motion = window.matchMedia('(prefers-reduced-motion: reduce)');
     if (motion.matches) return;
-    const timer = setTimeout(() => setRotation(previous => previous.index + 1 < previous.words.length
-      ? { ...previous, index: previous.index + 1 }
-      : { words: buildBrandWords(Math.random, previous.words.at(-1)), index: 0 }), BRAND_WORD_DURATION);
+    const timer = setTimeout(() => setRotation(previous => ({
+      ...previous, index: (previous.index + 1) % previous.words.length,
+    })), BRAND_WORD_DURATION);
     return () => clearTimeout(timer);
   }, [rotation]);
   const prefilled = getCodeFromURL() ?? "";
@@ -50,7 +50,7 @@ export function Home({ onStart }: HomeProps) {
           <BrandMark rounded className="mx-auto mb-5 h-16 w-16" />
           <h1 className="landing-brand brand-wordmark font-semibold text-white tracking-tight">
             <span className="sr-only">Make Together</span>
-            <span aria-hidden="true" className="grid [grid-template-columns:calc(50%_-_2rem)_1fr] items-baseline">
+            <span aria-hidden="true" className="grid [grid-template-columns:calc(50%_-_0.5rem)_1fr] items-baseline">
               <span className="brand-words text-brand-300">
                 <span className="brand-word-sizer">collaborate</span>
                 <span key={word} className="brand-word">{word}</span>
