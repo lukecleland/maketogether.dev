@@ -106,9 +106,20 @@ for (const available of ['audio', 'video', 'neither']) {
     const result = await acquireLocalMedia();
     assert.equal(result.stream.getTracks().length, available === 'neither' ? 0 : 1);
     if (available !== 'neither') assert.equal(result.stream.getTracks()[0].kind, available);
+    assert.ok(result.stream.getTracks().every(track => track.enabled === false));
     assert.ok(result.error);
   });
 }
+
+test('camera and microphone start disabled after a combined device request', async () => {
+  const tracks = [{ kind: 'audio', enabled: true }, { kind: 'video', enabled: true }];
+  const { acquireLocalMedia } = load('src/utils/localMedia.ts', { MediaStream: Stream,
+    navigator: { mediaDevices: { async getUserMedia() { return new Stream(tracks); } } } });
+  const result = await acquireLocalMedia();
+  assert.equal(result.error, null);
+  assert.equal(result.stream.getTracks().length, 2);
+  assert.ok(tracks.every(track => track.enabled === false));
+});
 
 test('playback tries audio first and keeps retry visible on rejected user playback', async () => {
   const effects = [], state = [], refs = [];

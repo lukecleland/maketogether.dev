@@ -201,8 +201,8 @@ function parseYouTubeVideoId(input: string): string | null {
 export function Session({ roomCode, isHost }: SessionProps) {
 	const [savedRoom] = useState(() => loadRoomSnapshot(roomCode));
 	const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-	const [microphoneEnabled, setMicrophoneEnabled] = useState(true);
-	const [cameraEnabled, setCameraEnabled] = useState(true);
+	const [microphoneEnabled, setMicrophoneEnabled] = useState(false);
+	const [cameraEnabled, setCameraEnabled] = useState(false);
 	const [mediaRetryKey, setMediaRetryKey] = useState(0);
 	const [mediaError, setMediaError] = useState<string | null>(null);
 	const [imageToast, setImageToast] = useState<{ message: string; id: string } | null>(null);
@@ -1963,6 +1963,12 @@ export function Session({ roomCode, isHost }: SessionProps) {
 	}, [localStream]);
 	const toggleCamera = useCallback(async () => {
 		const tracks = localStream?.getVideoTracks() ?? [];
+		if (tracks.length && !tracks.some(track => track.enabled)) {
+			tracks.forEach(track => { track.enabled = true; });
+			await replaceVideoTrack(tracks[0]);
+			setCameraEnabled(true);
+			return;
+		}
 		if (tracks.length) {
 			await replaceVideoTrack(null);
 			tracks.forEach(track => {
@@ -1996,8 +2002,8 @@ export function Session({ roomCode, isHost }: SessionProps) {
 				return;
 			}
 			setLocalStream(stream);
-			setMicrophoneEnabled(stream.getAudioTracks().length > 0);
-			setCameraEnabled(stream.getVideoTracks().length > 0);
+			setMicrophoneEnabled(false);
+			setCameraEnabled(false);
 			setMediaError(result.error);
 		};
 		void acquireMedia();
