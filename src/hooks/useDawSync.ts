@@ -11,6 +11,9 @@ export interface DawView {
   selected: string | null;
   region: string | null;
   zoom: number;
+  tempo?: number;
+  click?: boolean;
+  countIn?: boolean;
 }
 export interface DawVoice {
   trackId: string;
@@ -36,6 +39,7 @@ export function useDawSync(
     selected: null,
     region: null,
     zoom: 0,
+    tempo: 120, click: false, countIn: false,
     revision: 0,
     id: "",
   });
@@ -73,6 +77,7 @@ export function useDawSync(
     mode: DawActivity["mode"],
     position: number,
     trackId?: string,
+    countInEndsAt?: number,
   ) => {
     const activity: DawActivity = {
       revision: (latest.current?.revision ?? 0) + 1,
@@ -82,6 +87,7 @@ export function useDawSync(
       position: Math.min(1800, Math.max(0, position)),
       at: Date.now(),
       trackId,
+      countInEndsAt,
     };
     latest.current = activity;
     send(activity);
@@ -132,6 +138,9 @@ export function useDawSync(
           !Number.isFinite(next.zoom) ||
           next.zoom < 0 ||
           next.zoom > 100 ||
+          (next.tempo !== undefined && (!Number.isFinite(next.tempo) || next.tempo < 30 || next.tempo > 300)) ||
+          (next.click !== undefined && typeof next.click !== "boolean") ||
+          (next.countIn !== undefined && typeof next.countIn !== "boolean") ||
           !(next.selected === null || typeof next.selected === "string") ||
           !(next.region === null || typeof next.region === "string")
         )

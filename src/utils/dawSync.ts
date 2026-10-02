@@ -3,10 +3,11 @@ export interface DawActivity {
   revision: number;
   id: string;
   owner: string;
-  mode: "playing" | "stopped" | "recording";
+  mode: "playing" | "stopped" | "recording" | "count-in";
   position: number;
   at: number;
   trackId?: string;
+  countInEndsAt?: number;
   peaks?: { at: number; peak: number }[];
   notes?: {
     pitch: number;
@@ -26,7 +27,8 @@ export function validDawActivity(value: unknown): value is DawActivity {
     v.id.length <= 100 &&
     typeof v.owner === "string" &&
     v.owner.length <= 100 &&
-    ["playing", "stopped", "recording"].includes(v.mode) &&
+    ["playing", "stopped", "recording", "count-in"].includes(v.mode) &&
+    (v.mode !== "count-in" || (Number.isFinite(v.countInEndsAt) && v.countInEndsAt! > v.at && v.countInEndsAt! - v.at <= 8000)) &&
     Number.isFinite(v.position) &&
     v.position >= 0 &&
     v.position <= 1800 &&
@@ -75,7 +77,7 @@ export function dawActivityPosition(activity: DawActivity, now = Date.now()) {
   return Math.min(
     1800,
     activity.position +
-      (activity.mode === "stopped"
+      ((activity.mode === "stopped" || activity.mode === "count-in")
         ? 0
         : Math.max(0, (now - activity.at) / 1000)),
   );
