@@ -1,6 +1,6 @@
 import { PanelOverviewContext } from './PanelOverviewContext';
 import { useMovementSync } from "../hooks/useMovementSync";
-import { useContext, useEffect, useRef } from "react";
+import { useContext, useEffect, useRef, type CSSProperties } from "react";
 import Draggable, {
   type DraggableEvent,
   type DraggableData,
@@ -311,6 +311,7 @@ export function DraggablePanel({
         {resizeHandles.map((handle) => (
           <div
             key={handle.key}
+            data-panel-resize={handle.key}
             onMouseDown={(event) =>
               startResizeMouseDown(event, handle.edges)
             }
@@ -321,7 +322,8 @@ export function DraggablePanel({
             style={{
               cursor: handle.cursor,
               touchAction: "none",
-            }}
+              "--panel-resize-scale": scale,
+            } as CSSProperties}
           />
         ))}
         </div>
