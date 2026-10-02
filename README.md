@@ -365,7 +365,8 @@ Select a recorded or imported audio region to open its region controls. Drag
 its body to move it, its lower side edges to trim, or the **↻** handle in the
 upper-right corner to repeat the trimmed recording. The loop handle has a
 44px touch target on iPad and other touch screens; left/right keys on the
-handle remove/add a repetition. Repeats can end partway through a recording.
+handle remove/add a repetition. Repeats can end partway through a recording. Each visible repeat has its own
+rounded outline, dividing edge and title, including partial first/last repeats.
 The region controls also offer rename, exact position and source trims,
 loop length, gain, playback speed, reverse, and reset settings. Playback speed
 changes pitch and region length. Snap aligns region moves and loop lengths to

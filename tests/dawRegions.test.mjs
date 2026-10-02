@@ -160,3 +160,22 @@ test('removing a split loop retains its first audible portion and source phase',
     assert.deepEqual([unlooped.trimStart, unlooped.trimEnd], reverse ? [2, 4] : [4, 6]);
   }
 });
+
+
+test('loop sections show distinct full and partial repeats at the recorded time scale', () => {
+  const { dawLoopSections } = load('src/utils/dawLoopSections.ts', { './daw': daw });
+  const sections = dawLoopSections(region({ loopDuration: 8.5 }), 10, 0, 200);
+  assert.deepEqual(plain(sections), [{ index: 0, left: 0, width: 40 }, { index: 1, left: 40, width: 40 }, { index: 2, left: 80, width: 5 }]);
+  assert.deepEqual(plain(dawLoopSections(region(), 10, 0, 200)), []);
+});
+
+test('split phases and speed determine loop section boundaries; only visible repeats are rendered', () => {
+  const { dawLoopSections } = load('src/utils/dawLoopSections.ts', { './daw': daw });
+  assert.deepEqual(plain(dawLoopSections(region({ loopDuration: 5, loopOffset: 1, speed: 2 }), 10, 0, 200)), [
+    { index: 0, left: 0, width: 15 }, { index: 1, left: 15, width: 20 }, { index: 2, left: 35, width: 15 },
+  ]);
+  const visible = dawLoopSections(region({ loopDuration: 1000 }), 10, 100, 50);
+  assert.deepEqual(Array.from(visible, section => section.index), [2, 3]);
+  assert.deepEqual(plain(dawLoopSections(region({ loopDuration: 8 }), 10, 100, 50)), []);
+  assert.equal(dawLoopSections(region({ trimStart: 0, trimEnd: 0.001, loopDuration: 1000 }), 10, 0, 100), null);
+});
