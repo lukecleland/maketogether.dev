@@ -318,3 +318,7 @@ button:disabled {
 [data-overview] > :not(.draggable-panel):not([data-overview-header]) { display: none; }
 [data-overview] .draggable-panel { transition: transform 220ms ease; }
 @media (prefers-reduced-motion: reduce) { [data-overview] .draggable-panel { transition: none; } }
+
+@media (any-pointer: coarse) {
+  .daw-loop-handle { width: 44px; height: 44px; }
+}

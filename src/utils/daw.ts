@@ -19,6 +19,14 @@ export interface DawRegion extends DawRevision {
   start: number;
   trimStart: number;
   trimEnd: number;
+  /** Total repeated timeline length; source trims remain unchanged. */
+  loopDuration?: number;
+  /** Source phase retained when splitting a repeated region. */
+  loopOffset?: number;
+  gain?: number;
+  speed?: number;
+  reverse?: boolean;
+  restoredFrom?: { revision: number; editId: string };
 }
 export interface DawTrack extends DawRevision {
   name: string;
@@ -72,7 +80,13 @@ export function isDawRegion(value: unknown): value is DawRegion {
     r.trimStart >= 0 &&
     r.trimEnd <= r.duration &&
     r.trimEnd > r.trimStart &&
-    r.start + (r.trimEnd - r.trimStart) <= MAX_DAW_SECONDS
+    (r.restoredFrom === undefined || (object(r.restoredFrom) && Number.isSafeInteger(r.restoredFrom.revision) && r.restoredFrom.revision >= 0 && typeof r.restoredFrom.editId === 'string')) &&
+    (r.gain === undefined || (Number.isFinite(r.gain) && r.gain >= 0 && r.gain <= 2)) &&
+    (r.speed === undefined || (Number.isFinite(r.speed) && r.speed >= 0.25 && r.speed <= 4)) &&
+    (r.reverse === undefined || typeof r.reverse === "boolean") &&
+    (r.loopDuration === undefined || (!r.notes && Number.isFinite(r.loopDuration) && r.loopDuration >= 0.01)) &&
+    (r.loopOffset === undefined || (r.loopDuration !== undefined && Number.isFinite(r.loopOffset) && r.loopOffset >= 0 && r.loopOffset < r.trimEnd - r.trimStart)) &&
+    r.start + regionDuration(r) <= MAX_DAW_SECONDS
   );
 }
 function trackMetadata(value: unknown): value is Record<string, unknown> {
@@ -150,6 +164,18 @@ function winner<T extends DawRevision>(a: T, b: T): T {
     ? a
     : b;
 }
+/** An explicit undo can supersede its own tombstone, never a newer deletion. */
+function regionWinner(a: DawRegion, b: DawRegion) {
+  if (a.deleted !== b.deleted) {
+    const deleted = a.deleted ? a : b, active = a.deleted ? b : a;
+    if (active.revision > deleted.revision && active.restoredFrom && (deleted.revision < active.restoredFrom.revision || (deleted.revision === active.restoredFrom.revision && deleted.editId <= active.restoredFrom.editId))) return active;
+  }
+  return winner(a, b);
+}
+export function restoreDawRegion(region: DawRegion, current?: DawRegion): DawRegion {
+  return !region.deleted && current?.deleted
+    ? { ...region, restoredFrom: { revision: current.revision, editId: current.editId } } : region;
+}
 export function mergeDawRegions(
   current: DawRegion[],
   incoming: DawRegion[],
@@ -157,7 +183,7 @@ export function mergeDawRegions(
   const all = new Map(current.map((r) => [r.id, r]));
   for (const r of incoming)
     if (isDawRegion(r))
-      all.set(r.id, all.has(r.id) ? winner(all.get(r.id)!, r) : r);
+      all.set(r.id, all.has(r.id) ? regionWinner(all.get(r.id)!, r) : r);
   return [...all.values()].sort(
     (a, b) => a.start - b.start || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0),
   );
@@ -207,11 +233,38 @@ export function reorderDawTracks(
 }
 export const visibleRegions = (track: DawTrack) =>
   track.deleted ? [] : track.regions.filter((r) => !r.deleted);
+export const regionDuration = (region: DawRegion) => region.loopDuration ?? (region.trimEnd - region.trimStart) / (region.speed ?? 1);
+export function unloopDawRegion(region: DawRegion): DawRegion {
+  if (region.loopDuration === undefined) return region;
+  const phase = region.loopOffset ?? 0;
+  const length = Math.min(region.loopDuration * (region.speed ?? 1), region.trimEnd - region.trimStart - phase);
+  return { ...region, loopDuration: undefined, loopOffset: undefined,
+    trimStart: region.reverse ? region.trimEnd - phase - length : region.trimStart + phase,
+    trimEnd: region.reverse ? region.trimEnd - phase : region.trimStart + phase + length };
+}
+export function trimDawRegion(region: DawRegion, edge: 'left' | 'right', delta: number): DawRegion {
+  const speed = region.speed ?? 1;
+  const length = (region.trimEnd - region.trimStart) / speed;
+  const next = { ...region, loopDuration: undefined, loopOffset: undefined };
+  if (edge === 'left') {
+    const available = (region.reverse ? region.duration - region.trimEnd : region.trimStart) / speed;
+    const amount = Math.max(-region.start, -available, Math.min(length - 0.01, delta));
+    next.start += amount;
+    if (region.reverse) next.trimEnd -= amount * speed;
+    else next.trimStart += amount * speed;
+  } else {
+    const available = (region.reverse ? region.trimStart : region.duration - region.trimEnd) / speed;
+    const amount = Math.max(-length + 0.01, Math.min(available, MAX_DAW_SECONDS - region.start - length, delta));
+    if (region.reverse) next.trimStart -= amount * speed;
+    else next.trimEnd += amount * speed;
+  }
+  return next;
+}
 export const dawEnd = (tracks: DawTrack[]) =>
   Math.max(
     0,
     ...tracks.flatMap((t) =>
-      visibleRegions(t).map((r) => r.start + r.trimEnd - r.trimStart),
+      visibleRegions(t).map((r) => r.start + regionDuration(r)),
     ),
   );
 export const audibleTracks = (tracks: DawTrack[]) => {
@@ -222,11 +275,12 @@ export const audibleTracks = (tracks: DawTrack[]) => {
 export function clipSchedule(region: DawRegion, playhead: number) {
   if (region.deleted) return null;
   const skipped = Math.max(0, playhead - region.start);
-  const duration = region.trimEnd - region.trimStart - skipped;
+  const duration = regionDuration(region) - skipped;
   return duration > 0
     ? {
         delay: Math.max(0, region.start - playhead),
-        offset: region.trimStart + skipped,
+        offset: region.trimStart + (region.loopDuration === undefined ? skipped * (region.speed ?? 1)
+          : ((region.loopOffset ?? 0) + skipped * (region.speed ?? 1)) % (region.trimEnd - region.trimStart)),
         duration,
       }
     : null;
@@ -241,17 +295,22 @@ export function splitDawRegion(
   if (
     region.deleted ||
     offset < 0.01 ||
-    offset > region.trimEnd - region.trimStart - 0.01
+    offset > regionDuration(region) - 0.01
   )
     return null;
+  if (region.loopDuration !== undefined) return [
+    { ...region, loopDuration: offset },
+    { ...region, id: rightId, start: position, loopDuration: region.loopDuration - offset,
+      loopOffset: ((region.loopOffset ?? 0) + offset * (region.speed ?? 1)) % (region.trimEnd - region.trimStart) },
+  ];
+  const sourceOffset = offset * (region.speed ?? 1);
+  if (region.reverse) return [
+    { ...region, trimStart: region.trimEnd - sourceOffset },
+    { ...region, id: rightId, start: position, trimEnd: region.trimEnd - sourceOffset },
+  ];
   return [
-    { ...region, trimEnd: region.trimStart + offset },
-    {
-      ...region,
-      id: rightId,
-      start: position,
-      trimStart: region.trimStart + offset,
-    },
+    { ...region, trimEnd: region.trimStart + sourceOffset },
+    { ...region, id: rightId, start: position, trimStart: region.trimStart + sourceOffset },
   ];
 }
 export function scheduleDaw(
@@ -293,8 +352,14 @@ export function scheduleDaw(
       const source = context.createBufferSource(),
         gain = context.createGain(),
         pan = context.createStereoPanner();
-      source.buffer = buffer;
-      gain.gain.value = track.volume;
+      source.buffer = region.reverse ? reversedDawBuffer(context, buffer) : buffer;
+      source.playbackRate.value = region.speed ?? 1;
+      if (region.loopDuration !== undefined) {
+        source.loop = true;
+        source.loopStart = region.reverse ? buffer.duration - region.trimEnd : region.trimStart;
+        source.loopEnd = region.reverse ? buffer.duration - region.trimStart : region.trimEnd;
+      }
+      gain.gain.value = track.volume * (region.gain ?? 1);
       pan.pan.value = track.pan;
       source.connect(gain).connect(pan).connect(context.destination);
       source.onended = () => {
@@ -302,10 +367,28 @@ export function scheduleDaw(
         gain.disconnect();
         pan.disconnect();
       };
-      source.start(when + clip.delay, clip.offset, clip.duration);
+      const offset = region.reverse ? buffer.duration - region.trimEnd + clip.offset - region.trimStart : clip.offset;
+      if (region.loopDuration !== undefined) {
+        source.start(when + clip.delay, offset);
+        source.stop(when + clip.delay + clip.duration);
+      } else source.start(when + clip.delay, offset, clip.duration * (region.speed ?? 1));
       sources.push(source);
     }
   return sources;
+}
+
+const reverseBuffers = new WeakMap<AudioBuffer, AudioBuffer>();
+export function reversedDawBuffer(context: BaseAudioContext, buffer: AudioBuffer) {
+  let reversed = reverseBuffers.get(buffer);
+  if (!reversed) {
+    reversed = context.createBuffer(buffer.numberOfChannels, buffer.length, buffer.sampleRate);
+    for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+      const from = buffer.getChannelData(channel), to = reversed.getChannelData(channel);
+      for (let i = 0; i < from.length; i++) to[i] = from[from.length - i - 1];
+    }
+    reverseBuffers.set(buffer, reversed);
+  }
+  return reversed;
 }
 
 /** A basic soft synth, shared by live keys, playback and offline export. */
