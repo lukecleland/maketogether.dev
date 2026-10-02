@@ -292,6 +292,7 @@ export function Dock({ entries, onJump, onRemove, onRename, onPing, onParticipan
                 }
               }}
               className={`flex min-w-0 flex-1 items-center gap-1 transition-opacity ${entry.minimized ? "opacity-80" : "opacity-100"}`}
+              aria-label={`Go to ${entry.label}`}
               title={
                 entry.pulsing
                   ? `Go to ${entry.label} — just tagged by the other person`
@@ -299,10 +300,10 @@ export function Dock({ entries, onJump, onRemove, onRename, onPing, onParticipan
               }
             >
               <DockIcon type={entry.type} />
-              {/* Titles and filenames can be long — truncate; the full text
+              {/* Limit visible titles to 20 characters; the full text
                   is available via the button's title tooltip. */}
               <span className="text-[11px] font-medium text-zinc-300 truncate">
-                {entry.label}
+                {Array.from(entry.label).length > 20 ? `${Array.from(entry.label).slice(0, 20).join('')}…` : entry.label}
               </span>
             </button>
 
