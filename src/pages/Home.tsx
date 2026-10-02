@@ -44,7 +44,7 @@ export function Home({ onStart }: HomeProps) {
           <BrandMark rounded className="mx-auto mb-5 h-16 w-16" />
           <h1 className="landing-brand brand-wordmark font-semibold text-white tracking-tight">
             <span className="sr-only">Make Together</span>
-            <span aria-hidden="true" className="grid grid-cols-2 items-baseline">
+            <span aria-hidden="true" className="grid [grid-template-columns:calc(50%_-_2rem)_1fr] items-baseline">
               <span className="brand-words text-brand-300">
                 <span className="brand-word-sizer">collaborate</span>
                 <span key={wordIndex} className="brand-word">{BRAND_WORDS[wordIndex]}</span>
