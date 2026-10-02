@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { DockButton } from "./Dock";
 import { chordsOf, emptyChord } from "../types/panels";
 import type { ChordShape, NoteContent, NoteKind } from "../types/panels";
 import { codeFromText } from "../utils/code";
 import { CodeWidget } from "./CodeWidget";
+import { fitNoteText } from "../utils/noteText";
 
 /**
  * StickyNote — a note panel with three faces: plain text, a chord diagram, or
@@ -203,9 +204,29 @@ export function StickyNote({ note, onChange, onClose, docked = false, onToggleDo
     if (activelyTyping) return;
     const atEnd = el.selectionStart === el.value.length;
     el.value = note.text;
+    fitNoteText(el);
     // Keep the caret at the end if that's where it was, rather than jumping to 0
     if (document.activeElement === el && atEnd) el.setSelectionRange(note.text.length, note.text.length);
   }, [note.text]);
+
+  useLayoutEffect(() => {
+    const field = textRef.current;
+    if (!field) return;
+    fitNoteText(field);
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => fitNoteText(field));
+    });
+    observer.observe(field);
+    let active = true;
+    void document.fonts.ready.then(() => { if (active) fitNoteText(field); });
+    return () => {
+      active = false;
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
+  }, [note.kind]);
 
   return (
     <div
@@ -288,11 +309,13 @@ export function StickyNote({ note, onChange, onClose, docked = false, onToggleDo
             defaultValue={note.text}
             onChange={e => {
               lastTypedRef.current = Date.now();
+              fitNoteText(e.target);
               set({ text: e.target.value });
             }}
             placeholder="Write something…"
             spellCheck={false}
-            className="w-full min-h-24 flex-1 bg-transparent resize-none outline-none text-sm leading-snug placeholder:opacity-40"
+            aria-label="Note text"
+            className={`w-full ${note.codeBlocks?.length ? 'min-h-24' : 'min-h-0'} flex-1 bg-transparent resize-none outline-none text-sm leading-snug [overflow-wrap:anywhere] placeholder:opacity-40`}
           />
           {(note.codeBlocks ?? []).map((code, index) => (
             <div key={index} className="h-40 shrink-0">
