@@ -8,19 +8,23 @@ function load(path, imports = {}) {
   vm.runInNewContext(ts.transpileModule(readFileSync(new URL(`../${path}`, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, scope);
   return scope.exports;
 }
-test('landing sequence shuffles on load, returns to make every six displays, and preserves the lyric', () => {
-  const { buildBrandWords, BRAND_WORD_DURATION } = load('src/utils/brandWords.ts');
-  assert.equal(BRAND_WORD_DURATION, 2600);
+test('landing sequence shuffles on load with one six-second make bookend and three-second words', () => {
+  const { buildBrandWords, brandWordDuration } = load('src/utils/brandWords.ts');
+  assert.equal(brandWordDuration("make"), 6000);
   const expected = ['make','work','watch','create','record','jam','learn','sing','laugh','party','sketch','build','develop','write','compose','code','grow','produce','decide','teach','come','talk','stop','collaborate','listen'].sort();
   let seed = 12345;
   const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 2 ** 32; };
   const orders = new Set();
   for (let load = 0; load < 100; load++) {
     const words = Array.from(buildBrandWords(random));
-    assert.equal(words.length, 30);
+    assert.equal(words.length, 25);
     assert.deepEqual([...new Set(words)].sort(), expected);
+    assert.equal(words[0], 'make');
+    assert.equal(new Set(words).size, words.length);
     for (let index = 0; index < words.length * 3; index++) {
-      assert.equal(words[index % words.length] === 'make', index % 6 === 0);
+      const word = words[index % words.length];
+      assert.equal(word === 'make', index % words.length === 0);
+      assert.equal(brandWordDuration(word), word === 'make' ? 6000 : 3000);
     }
     const start = words.indexOf('stop');
     assert.deepEqual(words.slice(start, start + 3), ['stop', 'collaborate', 'listen']);
