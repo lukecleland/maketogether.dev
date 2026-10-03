@@ -1,4 +1,4 @@
-import { buildBrandWords, BRAND_WORD_DURATION } from '../utils/brandWords';
+import { buildBrandWords, brandWordDuration } from '../utils/brandWords';
 import { Toast } from '../components/Toast';
 import { BrandMark } from "../components/BrandMark";
 import { useEffect, useState } from "react";
@@ -19,9 +19,9 @@ export function Home({ onStart }: HomeProps) {
     if (motion.matches) return;
     const timer = setTimeout(() => setRotation(previous => ({
       ...previous, index: (previous.index + 1) % previous.words.length,
-    })), BRAND_WORD_DURATION);
+    })), brandWordDuration(word));
     return () => clearTimeout(timer);
-  }, [rotation]);
+  }, [rotation, word]);
   const prefilled = getCodeFromURL() ?? "";
   const [joinCode, setJoinCode] = useState(prefilled);
   const [joinError, setJoinError] = useState("");
