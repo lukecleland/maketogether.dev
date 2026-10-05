@@ -426,8 +426,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .session-header { flex-wrap: nowrap; gap: 4px; padding-bottom: 2px !important; }
   .session-header > div { width: auto; min-height: 34px; gap: 4px; }
   .session-header .brand-wordmark, .session-header [aria-label^="Version "],
-  .session-header .room-bundle-actions, .session-header [data-summon-variant="bar"] > span,
-  .summon-prompt { display: none; }
+  .session-header .room-bundle-actions, .session-header [data-summon-variant="bar"] > span { display: none; }
   .session-header .session-connection-status {
     width: 8px; height: 8px; max-width: 8px; padding: 0; overflow: hidden;
     font-size: 0; background: currentColor;
