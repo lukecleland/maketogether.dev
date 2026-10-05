@@ -230,7 +230,8 @@ export function DawWidget({
     duration + 5,
     Math.ceil((cursor + 5) / 30) * 30,
   );
-  const fitWidth = Math.max(100, viewportWidth - 230);
+  const trackHeaderWidth = viewportWidth < 600 ? 176 : 230;
+  const fitWidth = Math.max(100, viewportWidth - trackHeaderWidth);
   const timelineWidth = fitWidth * (timelineSeconds / 30) * 2 ** (zoom / 15);
   const pixelsPerSecond = timelineWidth / timelineSeconds;
   const rulerStep =
@@ -468,13 +469,13 @@ export function DawWidget({
   useEffect(() => {
     if ((!recording && !playing) || !timelineRef.current) return;
     const node = timelineRef.current;
-    const x = 230 + (cursor / timelineSeconds) * timelineWidth;
+    const x = trackHeaderWidth + (cursor / timelineSeconds) * timelineWidth;
     if (
       x > node.scrollLeft + node.clientWidth - 40 ||
-      x < node.scrollLeft + 230
+      x < node.scrollLeft + trackHeaderWidth
     )
       node.scrollLeft = Math.max(0, x - node.clientWidth + 80);
-  }, [recording, playing, cursor, timelineSeconds, timelineWidth]);
+  }, [recording, playing, cursor, timelineSeconds, timelineWidth, trackHeaderWidth]);
 
   const revision = () => {
     revisionRef.current =
@@ -2046,9 +2047,9 @@ export function DawWidget({
             setMenu({ kind: "DAW", x: event.clientX, y: event.clientY });
           }}
         >
-            <div className="relative min-h-32" style={{ width: timelineWidth + 230 }}>
+            <div className="relative min-h-32" style={{ width: timelineWidth + trackHeaderWidth }}>
               <div className="flex h-5 border-b border-zinc-800 text-[9px] text-zinc-500">
-                <div className="sticky left-0 z-20 w-[230px] shrink-0 bg-zinc-900 px-3 py-0.5">
+                <div style={{ width: trackHeaderWidth }} className="sticky left-0 z-20 shrink-0 bg-zinc-900 px-3 py-0.5">
                   {active.length} tracks · {time(duration)}
                 </div>
                 <div
@@ -2111,7 +2112,8 @@ export function DawWidget({
                       />
                     )}
                   <div
-                    className={`sticky left-0 z-20 flex w-[230px] shrink-0 flex-col justify-center gap-2 border-r border-zinc-800 px-2 py-1 ${selected === track.id ? "bg-emerald-950 ring-1 ring-inset ring-emerald-500/60" : "bg-zinc-900"}`}
+                    style={{ width: trackHeaderWidth }}
+                    className={`sticky left-0 z-20 flex shrink-0 flex-col justify-center gap-2 border-r border-zinc-800 px-2 py-1 ${selected === track.id ? "bg-emerald-950 ring-1 ring-inset ring-emerald-500/60" : "bg-zinc-900"}`}
                     onClick={() => {
                       setSelected(track.id);
                       setSelectedRegionId(null);
@@ -2397,7 +2399,7 @@ export function DawWidget({
                       >
                         {region.loopDuration !== undefined && <DawLoopSections
                           region={region} pixelsPerSecond={pixelsPerSecond}
-                          left={scrollLeft - 230 - region.start * pixelsPerSecond} viewport={viewportWidth}
+                          left={scrollLeft - trackHeaderWidth - region.start * pixelsPerSecond} viewport={viewportWidth}
                           selected={selectedRegionId === region.id} colour={colours[index % colours.length]}
                         />}
                         {region.loopDuration === undefined && <span className="pointer-events-none absolute inset-x-0 top-0 h-6 truncate border-b border-current/20 bg-current/10 px-2 py-1 text-[10px]">
@@ -2548,7 +2550,7 @@ export function DawWidget({
                 data-playhead
                 className={`pointer-events-none absolute bottom-0 top-1 z-10 w-px ${recording ? "bg-red-300" : "bg-emerald-300"}`}
                 style={{
-                  left: 230 + (cursor / timelineSeconds) * timelineWidth,
+                  left: trackHeaderWidth + (cursor / timelineSeconds) * timelineWidth,
                 }}
               >
                 <span
@@ -2615,7 +2617,7 @@ export function DawWidget({
                 ? `Sharing audio: ${Math.round(transferProgress * 100)}%`
                 : ""}
           </span>
-          <span
+          <span className="daw-keyboard-hint"><span
             className={keyboardActive && !minimized ? "text-emerald-400" : ""}
           >
             {keyboardActive && !minimized
@@ -2624,7 +2626,7 @@ export function DawWidget({
           </span>
           {
             " · Space Play / pause · R Record · Return Start · Delete Region · ? Help"
-          }
+          }</span>
         </div>
       </div>
       {createTrackOpen && !minimized && (

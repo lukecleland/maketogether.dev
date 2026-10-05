@@ -1625,7 +1625,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 		if ((vw < 640 || (vh < 500 && window.matchMedia('(pointer: coarse)').matches)) && !positionTag) {
 			if (jumpAnimRef.current !== null) cancelAnimationFrame(jumpAnimRef.current);
 			const top = (document.querySelector('.whiteboard-tools')?.getBoundingClientRect().bottom ?? 152) + 12;
-			setCanvas(framePanel(target, { width: vw, height: vh }, top, 100));
+			setCanvas(framePanel(target, { width: vw, height: vh }, top, 48));
 			return;
 		}
 		const destX = vw / 2 - (target.x + target.width / 2) * toScale;
@@ -1905,7 +1905,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 			if (window.innerWidth < 640 || (window.innerHeight < 500 && window.matchMedia('(pointer: coarse)').matches)) {
 				if (jumpAnimRef.current !== null) cancelAnimationFrame(jumpAnimRef.current);
 				const top = (document.querySelector('.whiteboard-tools')?.getBoundingClientRect().bottom ?? 152) + 12;
-				setCanvas(framePanel(state, { width: window.innerWidth, height: window.innerHeight }, top, 100));
+				setCanvas(framePanel(state, { width: window.innerWidth, height: window.innerHeight }, top, 48));
 			}
 			if (type === 'youtube') {
 				sendSync({ type: 'spawn-youtube', id, videoId: extra?.initialVideoId, state: normalisePanel(state) });
@@ -2437,7 +2437,9 @@ export function Session({ roomCode, isHost }: SessionProps) {
 						<span className="shrink-0 text-[9px] font-normal tabular-nums text-zinc-500" aria-label={`Version ${__APP_VERSION__}`} title={`Version ${__APP_VERSION__}`}>v{__APP_VERSION__}</span>
 					</div>
 					<span
-						className={`text-xs px-2 sm:px-2.5 py-0.5 rounded-full font-medium shrink-0 ${
+						aria-label={error ? 'Connection error' : status === 'waiting' ? 'Waiting for guest' : statusLabel[status]}
+						role="status"
+						className={`session-connection-status text-xs px-2 sm:px-2.5 py-0.5 rounded-full font-medium shrink-0 ${
 							status === 'connected' ? 'bg-emerald-500/20 text-emerald-400' : status === 'error' ? 'bg-red-500/20 text-red-400' : 'bg-zinc-700 text-zinc-400'
 						}`}>
 						{error ? (
@@ -2582,8 +2584,8 @@ export function Session({ roomCode, isHost }: SessionProps) {
 					</button>
 					{widgetMenuOpen && (
 						<div className="widget-menu absolute right-0 mt-2 w-48 overflow-y-auto bg-zinc-900/95 backdrop-blur border border-zinc-700 rounded-xl p-1.5 shadow-xl z-50">
-                            <button onClick={() => { void exportRoomBundle(); setWidgetMenuOpen(false); }} className="sm:hidden w-full rounded-lg px-2.5 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-800">Export room bundle</button>
-                            <button onClick={() => { roomBundleInputRef.current?.click(); setWidgetMenuOpen(false); }} className="sm:hidden w-full rounded-lg px-2.5 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-800">Import room bundle</button>
+                            <button onClick={() => { void exportRoomBundle(); setWidgetMenuOpen(false); }} className="mobile-room-action sm:hidden w-full rounded-lg px-2.5 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-800">Export room bundle</button>
+                            <button onClick={() => { roomBundleInputRef.current?.click(); setWidgetMenuOpen(false); }} className="mobile-room-action sm:hidden w-full rounded-lg px-2.5 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-800">Import room bundle</button>
 							<button onClick={() => { spawnPanel('recorder', window.innerWidth / 2, window.innerHeight / 2); setWidgetMenuOpen(false); }} className="w-full rounded-lg px-2.5 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-800">Record canvas</button>
 							<button onClick={() => { spawnPanel('whiteboard', window.innerWidth / 2, window.innerHeight / 2); setWidgetMenuOpen(false); }} className="w-full rounded-lg px-2.5 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-800">Whiteboard</button>
 							<button disabled={!screenShare.supported || screenShare.busy || !localStream} aria-pressed={screenShare.sharing}
@@ -2662,7 +2664,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 					</svg>
 					<span className="hidden lg:inline">{presentingId ? 'Stop presenting' : 'Present'}</span>
 				</button>
-				<div className="hidden sm:flex shrink-0 items-center gap-1">
+				<div className="room-bundle-actions hidden sm:flex shrink-0 items-center gap-1">
 					<button
 						onClick={exportRoomBundle}
 						className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 text-zinc-400 transition-colors hover:bg-zinc-700 hover:text-white"
@@ -2696,7 +2698,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 			    covered this card completely. */}
 			{status === 'waiting' && !summonPromptDismissed && (
 				<div
-					className="absolute left-1/2 -translate-x-1/2 z-50 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 bg-zinc-900/95 backdrop-blur border border-zinc-700 rounded-xl pl-3 sm:pl-4 pr-2 py-2.5 shadow-xl max-w-[calc(100vw-2rem)]"
+					className="summon-prompt absolute left-1/2 -translate-x-1/2 z-50 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 bg-zinc-900/95 backdrop-blur border border-zinc-700 rounded-xl pl-3 sm:pl-4 pr-2 py-2.5 shadow-xl max-w-[calc(100vw-2rem)]"
 					style={{ bottom: 'calc(1rem + env(safe-area-inset-bottom) + 4.75rem)' }}>
 					{/* Stacks on a phone: side by side, the sentence squeezes to
 					    four words a line and the card stops being readable. */}
