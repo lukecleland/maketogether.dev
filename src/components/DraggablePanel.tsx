@@ -137,11 +137,18 @@ export function DraggablePanel({
 }: DraggablePanelProps) {
   const [expanded, setExpanded] = useState(false);
   useEffect(() => {
-    const query = window.matchMedia('(any-pointer: coarse) and (orientation: landscape) and (max-height: 600px)');
+    if (!landscapeLabel) return;
+    const query = window.matchMedia('(max-width: 639px), (any-pointer: coarse) and (max-width: 1023px)');
+    const orientation = window.matchMedia('(orientation: landscape)');
     const restore = () => { if (!query.matches) setExpanded(false); };
+    const rotate = () => setExpanded(false);
     query.addEventListener('change', restore);
-    return () => query.removeEventListener('change', restore);
-  }, []);
+    orientation.addEventListener('change', rotate);
+    return () => {
+      query.removeEventListener('change', restore);
+      orientation.removeEventListener('change', rotate);
+    };
+  }, [landscapeLabel]);
   if (minimized && expanded) setExpanded(false);
   const overview = useContext(PanelOverviewContext);
   const frame = panelId ? overview?.frames[panelId] : undefined;

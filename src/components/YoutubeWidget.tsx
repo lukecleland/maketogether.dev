@@ -370,7 +370,7 @@ export function YoutubeWidget({
             className={`absolute inset-0 h-full w-full ${!hasVideo ? "hidden" : ""}`}
           />
         </div>
-      {hasVideo && <div className="no-drag shrink-0 flex flex-wrap items-center gap-2 px-3 py-2 bg-zinc-800 text-xs text-zinc-200">
+      {hasVideo && <div className="youtube-transport no-drag shrink-0 flex flex-wrap items-center gap-2 px-3 py-2 bg-zinc-800 text-xs text-zinc-200">
         <button className="min-h-11 px-3 rounded bg-zinc-700" aria-label={playing ? "Pause YouTube for everyone" : "Play YouTube for everyone"} onClick={() => control(sharedPosition(), !playing)}>{playing ? "Pause" : "Play"}</button>
         <input className="min-w-16 flex-1 h-11 accent-red-500" type="range" aria-label="YouTube playback position" min={0} max={duration || Math.max(1, position)} step={0.1} value={Math.min(position, duration || position)} disabled={!duration} onChange={event => control(Number(event.target.value), playbackStateRef.current.playing, true)} />
         <span className="tabular-nums">{Math.floor(position / 60)}:{String(Math.floor(position % 60)).padStart(2, "0")}</span>

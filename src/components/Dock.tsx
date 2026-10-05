@@ -216,6 +216,7 @@ export function Dock({ entries, onJump, onRemove, onRename, onPing, onParticipan
     }, 1900);
   };
   // id of the chip currently being renamed, plus its in-progress text
+  const [actionsId, setActionsId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
@@ -277,6 +278,7 @@ export function Dock({ entries, onJump, onRemove, onRename, onPing, onParticipan
         ) : (
           <div
             key={entry.id}
+            data-dock-actions-open={actionsId === entry.id}
             className={`group flex min-w-0 max-w-full min-h-8 shrink-0 items-center gap-0.5 rounded-lg pl-1.5 pr-1 py-1 transition-colors border ${
               entry.pulsing
                 ? "dock-pulse bg-brand-950/60 border-brand-500"
@@ -307,6 +309,12 @@ export function Dock({ entries, onJump, onRemove, onRename, onPing, onParticipan
               </span>
             </button>
 
+            <button
+              className="dock-actions-toggle"
+              aria-label={`Actions for ${entry.label}`}
+              aria-expanded={actionsId === entry.id}
+              onClick={() => setActionsId(value => value === entry.id ? null : entry.id)}
+            >⋯</button>
             <button
               onClick={() => ping(entry.id)}
               className={`relative shrink-0 transition-colors ${

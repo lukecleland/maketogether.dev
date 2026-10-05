@@ -357,7 +357,7 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 }
 
 .landscape-expand { display: none; }
-@media (any-pointer: coarse) and (orientation: landscape) and (max-height: 600px) {
+@media (max-width: 639px), (any-pointer: coarse) and (max-width: 1023px) {
   /* Expand locally: keep the same mounted media and shared panel geometry. */
   .landscape-expand {
     display: block; position: absolute; right: 8px; bottom: 8px; z-index: 40;
@@ -418,4 +418,51 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .canvas-system-controls button { min-width: 28px; width: 28px; height: 28px; padding: 5px; border-radius: 6px; }
   .canvas-system-controls button span { display: none; }
   .canvas-system-controls svg { width: 16px; height: 16px; }
+}
+
+.dock-actions-toggle { display: none; }
+@media (max-width: 639px), (any-pointer: coarse) and (max-width: 1023px) {
+  :root { --session-header-height: 36px; }
+  .session-header { flex-wrap: nowrap; gap: 4px; padding-bottom: 2px !important; }
+  .session-header > div { width: auto; min-height: 34px; gap: 4px; }
+  .session-header .brand-wordmark, .session-header [aria-label^="Version "],
+  .session-header .room-bundle-actions, .session-header [data-summon-variant="bar"] > span,
+  .summon-prompt { display: none; }
+  .session-header .session-connection-status {
+    width: 8px; height: 8px; max-width: 8px; padding: 0; overflow: hidden;
+    font-size: 0; background: currentColor;
+  }
+  .session-header button { min-width: 28px; min-height: 28px; height: 28px; padding: 2px 4px; font-size: 11px; }
+  .session-header [title="Reset view (100%)"] { min-width: 34px; }
+  .session-header .widget-menu button { width: 100%; min-height: 36px; height: auto; padding: 6px 8px; text-align: left; }
+  .session-header .mobile-room-action { display: block; }
+  .widget-menu { max-width: 20rem; }
+  [data-dock] {
+    left: max(8px, env(safe-area-inset-left)); right: calc(80px + env(safe-area-inset-right));
+    bottom: calc(6px + env(safe-area-inset-bottom)) !important;
+    flex-wrap: nowrap; justify-content: flex-start; max-height: 30px;
+    overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+    pointer-events: auto; touch-action: pan-x;
+  }
+  [data-dock] > div { min-height: 28px; padding: 2px 4px; max-width: 160px; }
+  [data-dock-entry] > span { max-width: 96px; font-size: 10px; }
+  [data-dock] .dock-actions-toggle { display: block; width: 22px; height: 22px; flex-shrink: 0; }
+  [data-dock-actions-open="false"] > button:not([data-dock-entry]):not(.dock-actions-toggle) { display: none; }
+  [data-dock] > [data-dock-actions-open="true"] { max-width: 260px; }
+  .canvas-system-controls { bottom: calc(4px + env(safe-area-inset-bottom)); right: max(8px, env(safe-area-inset-right)); }
+  .youtube-transport { padding: 3px 6px; gap: 6px; }
+  .youtube-transport button, .youtube-transport input { min-height: 30px; height: 30px; }
+  .landscape-expand { min-height: 30px; padding: 0 8px; font-size: 12px; }
+  [data-panel-expanded] { padding-top: calc(32px + env(safe-area-inset-top)); }
+  [data-panel-expanded] .youtube-link-controls { left: calc(132px + env(safe-area-inset-left)); }
+  [data-panel-expanded] .youtube-link-controls input { padding-top: 3px; padding-bottom: 3px; }
+  .daw-toolbar { flex-wrap: nowrap; overflow-x: auto; padding: 3px; gap: 4px; }
+  .daw-toolbar > * { flex-shrink: 0; }
+  [data-panel-expanded] .daw-toolbar { padding: 3px; gap: 4px; }
+  [data-panel-expanded] .daw-toolbar button, [data-panel-expanded] .daw-toolbar input { min-height: 30px; min-width: 30px; }
+  [data-panel-expanded] [aria-label="DAW menus"] button { min-height: 28px; padding: 3px 10px; }
+}
+@media (max-width: 639px), (any-pointer: coarse) and (max-width: 1023px) {
+  .daw-keyboard-hint { display: none; }
+  .daw-status:not(:has(button)):has([role="status"]:empty) { display: none; }
 }

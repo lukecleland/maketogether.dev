@@ -180,6 +180,7 @@ export function SummonButton({ roomCode, variant = "bar" }: SummonButtonProps) {
     <div className="relative shrink-0">
       <button
         ref={buttonRef}
+        data-summon-variant={variant}
         onClick={handleSummon}
         className={
           variant === "prompt"

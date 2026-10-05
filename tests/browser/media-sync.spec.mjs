@@ -77,6 +77,9 @@ test('YouTube controls and DAW transport work across desktop and a blocked iPhon
     });
     for (const viewport of [{ width: 844, height: 390 }, { width: 667, height: 375 }, { width: 568, height: 320 }, { width: 932, height: 430 }]) {
       await phone.setViewportSize(viewport);
+      expect((await phone.locator('.session-header').boundingBox()).height).toBeLessThanOrEqual(38);
+      expect((await phone.locator('[data-dock]').boundingBox()).height).toBeLessThanOrEqual(30);
+      expect(await phone.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       const toolbar = phone.locator('.whiteboard-tools');
       expect((await toolbar.boundingBox()).width).toBeLessThanOrEqual(66);
       expect((await toolbar.boundingBox()).height).toBeLessThanOrEqual(34);
@@ -89,6 +92,7 @@ test('YouTube controls and DAW transport work across desktop and a blocked iPhon
       expect((await phone.locator('.canvas-system-controls').boundingBox()).height).toBeLessThanOrEqual(34);
       if (viewport.width === 844) await phone.screenshot({ path: '/private/tmp/maketogether-compact-toolbar.png' });
       await phone.getByRole('button', { name: 'Go to Make Music Together', exact: true }).click();
+      if (viewport.width === 844) await phone.screenshot({ path: '/private/tmp/maketogether-space-landscape.png' });
       await phone.getByRole('button', { name: 'Expand DAW', exact: true }).click();
       const expanded = phone.locator('[data-panel-expanded]');
       await expect(expanded).toHaveCount(1);
@@ -96,9 +100,9 @@ test('YouTube controls and DAW transport work across desktop and a blocked iPhon
       expect(bounds.width).toBe(viewport.width); expect(bounds.height).toBe(viewport.height);
       const play = daw(phone).getByRole('button', { name: 'Play', exact: true });
       const control = await play.boundingBox();
-      expect(control.width).toBeGreaterThanOrEqual(44); expect(control.height).toBeGreaterThanOrEqual(44);
+      expect(control.width).toBeGreaterThanOrEqual(30); expect(control.height).toBeGreaterThanOrEqual(30);
       const timeline = await phone.locator('[data-daw-timeline]').boundingBox();
-      expect(timeline.height).toBeGreaterThanOrEqual(90);
+      expect(timeline.height).toBeGreaterThanOrEqual(120);
       await play.click();
       await expect(daw(desktop).getByRole('button', { name: 'Pause', exact: true })).toBeVisible();
       await daw(phone).getByRole('button', { name: 'Pause', exact: true }).click();
@@ -119,6 +123,15 @@ test('YouTube controls and DAW transport work across desktop and a blocked iPhon
     await phone.screenshot({ path: '/private/tmp/maketogether-landscape-daw.png' });
     await phone.setViewportSize({ width: 390, height: 844 });
     await expect(phone.locator('[data-panel-expanded]')).toHaveCount(0);
+    expect((await phone.locator('.session-header').boundingBox()).height).toBeLessThanOrEqual(38);
+    await phone.getByRole('button', { name: 'Actions for Make Music Together', exact: true }).click();
+    await expect(phone.getByRole('button', { name: 'Rename Make Music Together', exact: true })).toBeVisible();
+    await phone.getByRole('button', { name: 'Actions for Make Music Together', exact: true }).click();
+    await phone.getByRole('button', { name: 'Go to Make Music Together', exact: true }).click();
+    await phone.getByRole('button', { name: 'Expand DAW', exact: true }).click();
+    expect((await phone.locator('[data-daw-timeline]').boundingBox()).height).toBeGreaterThan(500);
+    await phone.screenshot({ path: '/private/tmp/maketogether-space-portrait.png' });
+    await phone.getByRole('button', { name: 'Back to canvas', exact: true }).click();
     expect((await phone.locator('.whiteboard-tools').boundingBox()).width).toBeLessThanOrEqual(66);
     await phone.getByRole('button', { name: 'Show drawing tools', exact: true }).click();
     await expect(phone.getByRole('button', { name: 'Clear canvas', exact: true })).toBeVisible();
