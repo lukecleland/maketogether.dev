@@ -307,10 +307,18 @@ export function DraggablePanel({
         {landscapeLabel && !frame && !minimized && <button
           type="button"
           className="landscape-expand no-drag"
+          data-expand-kind={landscapeLabel}
           aria-label={expanded ? "Back to canvas" : `Expand ${landscapeLabel}`}
+          title={expanded ? "Back to canvas" : `Expand ${landscapeLabel}`}
           aria-expanded={expanded}
           onClick={() => setExpanded(value => !value)}
-        >{expanded ? "← Back to canvas" : "⛶ Full screen"}</button>}
+        >
+          {landscapeLabel === "DAW" ? (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
+              <path d={expanded ? "M9 3v6H3m12-6v6h6M3 15h6v6m12-6h-6v6" : "M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"} />
+            </svg>
+          ) : expanded ? "← Back to canvas" : "⛶ Full screen"}
+        </button>}
 
         {onMinimize && !minimized && !minimizeControlHandled && (
           <button
