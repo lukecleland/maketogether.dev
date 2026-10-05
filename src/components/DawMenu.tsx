@@ -25,9 +25,16 @@ export function DawMenu({
   useLayoutEffect(() => {
     const node = ref.current;
     if (!node) return;
+    const viewport = window.visualViewport;
+    const left = viewport?.offsetLeft ?? 0;
+    const top = viewport?.offsetTop ?? 0;
+    const width = viewport?.width ?? window.innerWidth;
+    const height = viewport?.height ?? window.innerHeight;
+    node.style.maxWidth = `${width - 16}px`;
+    node.style.maxHeight = `${height - 16}px`;
     const rect = node.getBoundingClientRect();
-    node.style.left = `${Math.max(8, Math.min(x, window.innerWidth - rect.width - 8))}px`;
-    node.style.top = `${Math.max(8, Math.min(y, window.innerHeight - rect.height - 8))}px`;
+    node.style.left = `${Math.max(left + 8, Math.min(x, left + width - rect.width - 8))}px`;
+    node.style.top = `${Math.max(top + 8, Math.min(y, top + height - rect.height - 8))}px`;
     node.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
   }, [x, y, title]);
   useEffect(() => {
@@ -37,9 +44,13 @@ export function DawMenu({
     const dismiss = () => onClose();
     document.addEventListener("pointerdown", outside, true);
     window.addEventListener("resize", dismiss);
+    window.visualViewport?.addEventListener("resize", dismiss);
+    window.visualViewport?.addEventListener("scroll", dismiss);
     return () => {
       document.removeEventListener("pointerdown", outside, true);
       window.removeEventListener("resize", dismiss);
+      window.visualViewport?.removeEventListener("resize", dismiss);
+      window.visualViewport?.removeEventListener("scroll", dismiss);
     };
   }, [onClose]);
   return createPortal(
