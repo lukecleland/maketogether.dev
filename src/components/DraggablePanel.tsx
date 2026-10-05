@@ -1,6 +1,6 @@
 import { PanelOverviewContext } from './PanelOverviewContext';
 import { useMovementSync } from "../hooks/useMovementSync";
-import { useContext, useEffect, useRef, type CSSProperties } from "react";
+import { useContext, useEffect, useRef, useState, type CSSProperties } from "react";
 import Draggable, {
   type DraggableEvent,
   type DraggableData,
@@ -16,9 +16,8 @@ import type { PanelState } from "../types/panels";
  * react-draggable's internal position tracking.
  *
  * ## Resize
- * A custom bottom-right corner handle listens to raw `mousemove`/`mouseup`
- * events on `window` so the drag doesn't break when the cursor moves outside
- * the panel boundary quickly.
+ * Edge and corner handles capture the pointer so resizing continues outside
+ * the panel and cleans up on release, cancellation, or unmount.
  *
  * ## Sync throttle
  * Both drag and resize schedule `onSyncUpdate` at most once per 16 ms (~60 fps)
@@ -52,6 +51,7 @@ interface DraggablePanelProps {
   minimized?: boolean;
   onMinimize?: () => void;
   minimizeControlHandled?: boolean;
+  landscapeLabel?: string;
 }
 
 interface ResizeEdges {
@@ -133,7 +133,16 @@ export function DraggablePanel({
   minimized = false,
   onMinimize,
   minimizeControlHandled = false,
+  landscapeLabel,
 }: DraggablePanelProps) {
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia('(any-pointer: coarse) and (orientation: landscape) and (max-height: 600px)');
+    const restore = () => { if (!query.matches) setExpanded(false); };
+    query.addEventListener('change', restore);
+    return () => query.removeEventListener('change', restore);
+  }, []);
+  if (minimized && expanded) setExpanded(false);
   const overview = useContext(PanelOverviewContext);
   const frame = panelId ? overview?.frames[panelId] : undefined;
   const nodeRef = useRef<HTMLDivElement>(null);
@@ -143,18 +152,24 @@ export function DraggablePanel({
     stateRef.current = state;
   }, [state]);
 
+  const dragInterrupted = useRef(false);
+  const resizeCleanup = useRef<(() => void) | null>(null);
+  useEffect(() => () => resizeCleanup.current?.(), []);
+
   const movementSync = useMovementSync(onSyncUpdate);
   const scheduleSyncUpdate = movementSync.schedule;
 
   // ── Drag ──────────────────────────────────────────────────────────────
-  const handleDrag = (_: DraggableEvent, data: DraggableData) => {
+  const handleDrag = (event: DraggableEvent, data: DraggableData) => {
+    if ("touches" in event && event.touches.length > 1) dragInterrupted.current = true;
+    if (dragInterrupted.current) return;
     const next = { ...stateRef.current, x: data.x, y: data.y };
     onLocalUpdate(next);
     scheduleSyncUpdate(next);
   };
 
   const handleDragStop = (_: DraggableEvent, data: DraggableData) => {
-    const next = { ...stateRef.current, x: data.x, y: data.y };
+    const next = dragInterrupted.current ? stateRef.current : { ...stateRef.current, x: data.x, y: data.y };
     onLocalUpdate(next);
     // Always flush on stop so final position is always sent
     movementSync.flush(next);
@@ -162,14 +177,21 @@ export function DraggablePanel({
 
   // ── Resize (all four edges and corners) ───────────────────────────────
   const startResize = (
-    startX: number,
-    startY: number,
+    event: React.PointerEvent<HTMLDivElement>,
     edges: ResizeEdges,
   ) => {
+    if (!event.isPrimary || event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onBringToFront();
+    resizeCleanup.current?.();
+    const handle = event.currentTarget;
+    const pointerId = event.pointerId;
+    handle.setPointerCapture(pointerId);
     const initial = stateRef.current;
     const origin = {
-      mx: startX,
-      my: startY,
+      mx: event.clientX,
+      my: event.clientY,
       state: initial,
     };
 
@@ -195,66 +217,44 @@ export function DraggablePanel({
       return next;
     };
 
-    const onMouseMove = (ev: MouseEvent) => {
-      const next = applyResize(ev.clientX, ev.clientY);
-      onLocalUpdate(next);
-      scheduleSyncUpdate(next);
+    let latest = initial;
+    const move = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      latest = applyResize(ev.clientX, ev.clientY);
+      onLocalUpdate(latest);
+      scheduleSyncUpdate(latest);
     };
-
-    const onMouseUp = (ev: MouseEvent) => {
-      const next = applyResize(ev.clientX, ev.clientY);
-      onLocalUpdate(next);
-      movementSync.flush(next);
-      window.removeEventListener("mousemove", onMouseMove);
-      window.removeEventListener("mouseup", onMouseUp);
+    const cleanup = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", finish);
+      handle.removeEventListener("pointercancel", finish);
+      handle.removeEventListener("lostpointercapture", finish);
+      if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId);
+      resizeCleanup.current = null;
     };
-
-    const onTouchMove = (ev: TouchEvent) => {
-      const t = ev.touches[0];
-      const next = applyResize(t.clientX, t.clientY);
-      onLocalUpdate(next);
-      scheduleSyncUpdate(next);
+    const finish = (ev: PointerEvent) => {
+      if (ev.pointerId !== pointerId) return;
+      if (ev.type === "pointerup") latest = applyResize(ev.clientX, ev.clientY);
+      onLocalUpdate(latest);
+      movementSync.flush(latest);
+      cleanup();
     };
-
-    const onTouchEnd = (ev: TouchEvent) => {
-      const t = ev.changedTouches[0];
-      const next = applyResize(t.clientX, t.clientY);
-      onLocalUpdate(next);
-      movementSync.flush(next);
-      window.removeEventListener("touchmove", onTouchMove);
-      window.removeEventListener("touchend", onTouchEnd);
-    };
-
-    window.addEventListener("mousemove", onMouseMove);
-    window.addEventListener("mouseup", onMouseUp);
-    window.addEventListener("touchmove", onTouchMove, { passive: true });
-    window.addEventListener("touchend", onTouchEnd);
-  };
-
-  const startResizeMouseDown = (
-    e: React.MouseEvent,
-    edges: ResizeEdges,
-  ) => {
-    e.preventDefault();
-    e.stopPropagation();
-    startResize(e.clientX, e.clientY, edges);
-  };
-
-  const startResizeTouchStart = (
-    e: React.TouchEvent,
-    edges: ResizeEdges,
-  ) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const touch = e.touches[0];
-    startResize(touch.clientX, touch.clientY, edges);
+    resizeCleanup.current = cleanup;
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", finish);
+    handle.addEventListener("pointercancel", finish);
+    handle.addEventListener("lostpointercapture", finish);
   };
 
   return (
     <Draggable
       nodeRef={nodeRef as React.RefObject<HTMLElement>}
       position={{ x: frame?.x ?? state.x, y: frame?.y ?? state.y }}
-      disabled={!!frame}
+      disabled={!!frame || expanded}
+      onStart={(event) => {
+        dragInterrupted.current = false;
+        if ("touches" in event && event.touches.length !== 1) return false;
+      }}
       onDrag={handleDrag}
       onStop={handleDragStop}
       // The panel itself is the drag handle. Native controls and explicitly
@@ -266,14 +266,16 @@ export function DraggablePanel({
       <div
         {...(excludeFromRecording ? { "data-recording-exclude": true } : {})}
         ref={nodeRef}
+        data-panel-expanded={expanded || undefined}
         style={{
+          "--panel-local-scale": scale,
           width: frame?.width ?? state.width,
           height: frame?.height ?? state.height,
           zIndex: frame ? 1 : state.z,
           // The full-screen transformed parent is click-through so it cannot
           // block whiteboard strokes; only visible panels opt back in.
           pointerEvents: "auto",
-        }}
+        } as CSSProperties}
         className={`draggable-panel absolute ${className}`}
         onPointerDown={frame ? undefined : onBringToFront}
         onDoubleClick={(event) => {
@@ -295,6 +297,13 @@ export function DraggablePanel({
           style={{ opacity: minimized && !frame ? 0 : 1, pointerEvents: frame || minimized ? "none" : "auto", ...(frame ? { width: state.width, height: state.height, transform: `scale(${frame.scale})`, transformOrigin: 'top left' } : {}) }}
         >
         {children}
+        {landscapeLabel && !frame && !minimized && <button
+          type="button"
+          className="landscape-expand no-drag"
+          aria-label={expanded ? "Back to canvas" : `Expand ${landscapeLabel}`}
+          aria-expanded={expanded}
+          onClick={() => setExpanded(value => !value)}
+        >{expanded ? "← Back to canvas" : "⛶ Full screen"}</button>}
 
         {onMinimize && !minimized && !minimizeControlHandled && (
           <button
@@ -312,12 +321,7 @@ export function DraggablePanel({
           <div
             key={handle.key}
             data-panel-resize={handle.key}
-            onMouseDown={(event) =>
-              startResizeMouseDown(event, handle.edges)
-            }
-            onTouchStart={(event) =>
-              startResizeTouchStart(event, handle.edges)
-            }
+            onPointerDown={(event) => startResize(event, handle.edges)}
             className={`no-drag absolute z-20 ${handle.className}`}
             style={{
               cursor: handle.cursor,

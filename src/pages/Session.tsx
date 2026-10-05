@@ -1,3 +1,5 @@
+import { DRAWING_VIEWPORT, convertDrawing, migrateDrawingCoordinates } from '../utils/drawingCoordinates';
+import { framePanel, transformGesture } from '../utils/canvasViewport';
 import { CanvasSystemControls } from '../components/CanvasSystemControls';
 import { PanelOverviewContext } from '../components/PanelOverviewContext';
 import { layoutOverview } from '../utils/panelOverview';
@@ -27,8 +29,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
  * - Instantiates `useYouTubeSync` to route `panel-update`, `draw`, and
  *   `draw-clear` messages (YouTube playback messages are routed by a second
  *   `useYouTubeSync` instance inside YoutubeWidget)
- * - Normalises panel state before sending and denormalises on receipt so
- *   panels land proportionally on different-resolution screens
+ * - Shares fixed world geometry so screen size never distorts panels or art
  * - Renders the full-screen whiteboard canvas (z=0), the whiteboard toolbar,
  *   and the three floating DraggablePanels (local video, remote video, YouTube)
  * - Owns the dock (`dockedIds`): shared bookmarks that fly the viewport back to
@@ -199,7 +200,7 @@ function parseYouTubeVideoId(input: string): string | null {
 }
 
 export function Session({ roomCode, isHost }: SessionProps) {
-	const [savedRoom] = useState(() => loadRoomSnapshot(roomCode));
+	const [savedRoom] = useState(() => { const saved = loadRoomSnapshot(roomCode); return saved ? migrateDrawingCoordinates(saved) : null; });
 	const [localStream, setLocalStream] = useState<MediaStream | null>(null);
 	const [microphoneEnabled, setMicrophoneEnabled] = useState(false);
 	const [cameraEnabled, setCameraEnabled] = useState(false);
@@ -429,6 +430,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 	useEffect(() => {
 		const snapshot: RoomSnapshot = {
 			version: ROOM_STATE_VERSION,
+			drawingViewport: DRAWING_VIEWPORT,
 			savedAt: Date.now(),
 			viewport: { width: window.innerWidth, height: window.innerHeight },
 			fixedPanels,
@@ -476,7 +478,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 		return () => clearTimeout(saveTimer);
 	}, [canvas, connectors, customLabels, dockedIds, dynamicPanels, fixedPanels, panelLabels, positionTags, remotePanelStates, roomCode, savedRoom?.drawings, savedRoom?.panels, whiteboardRevision]);
 
-	const { remoteStreams, dataConnection, participantCount, status, error, mediaStatus, retryMedia, replaceVideoTrack } = usePeer({
+	const { remoteStreams, dataConnection, participantCount, connectionRevision, status, error, mediaStatus, retryMedia, replaceVideoTrack } = usePeer({
 		roomCode,
 		isHost,
 		localStream
@@ -574,7 +576,8 @@ export function Session({ roomCode, isHost }: SessionProps) {
 		acknowledgePulse(id);
 	}, [acknowledgePulse]);
 
-	const applyRoomSnapshot = useCallback((snapshot: RoomSnapshot) => {
+	const applyRoomSnapshot = useCallback((incoming: RoomSnapshot) => {
+		const snapshot = migrateDrawingCoordinates(incoming);
 		ignoreLocalHydrationRef.current = true;
 		// usePeer maps AV geometry to this client's participant identities. The
 		// shared layout must replace stale device-local positions when joining.
@@ -585,7 +588,8 @@ export function Session({ roomCode, isHost }: SessionProps) {
 			...Object.values(snapshot.fixedPanels).map(panel => panel.z),
 			...Object.values(snapshot.remotePanels ?? {}).map(panel => panel.z),
 			...snapshot.panels.map(panel => panel.state.z));
-		setDynamicPanels(snapshot.panels.map(panel => ({
+		const playbackRevision = crypto.randomUUID();
+		setDynamicPanels(previous => snapshot.panels.map(panel => ({
 			id: panel.id,
 			type: panel.type,
 			state: { ...panel.state },
@@ -599,9 +603,11 @@ export function Session({ roomCode, isHost }: SessionProps) {
 			whiteboard: panel.whiteboard,
 			dawTracks: panel.dawTracks ? normaliseDawTracks(panel.dawTracks) : undefined,
 			playback: panel.playback,
+			playbackRevision,
+			initialFile: previous.find(item => item.id === panel.id && item.initialFile?.name === (panel.audioFileName ?? panel.imageFileName ?? panel.pdfFileName))?.initialFile,
 			mediaFileName: panel.type === 'audio' ? panel.audioFileName : panel.type === 'image' ? panel.imageFileName : panel.type === 'pdf' ? panel.pdfFileName : undefined,
 			recordingMetadata: panel.recordings,
-			recordings: []
+			recordings: previous.find(item => item.id === panel.id)?.recordings ?? []
 		})));
 		setPositionTags(snapshot.positionTags.map(tag => ({ ...tag })));
 		setConnectors(snapshot.connectors?.map(connector => ({ ...connector })) ?? []);
@@ -609,14 +615,19 @@ export function Session({ roomCode, isHost }: SessionProps) {
 		setPanelLabels(snapshot.panelLabels);
 		// Joining state must not erase a name this participant already chose.
 		setCustomLabels(previous => ({ ...snapshot.customLabels, ...(previous.local !== undefined ? { local: previous.local } : {}) }));
-		setCanvas({ ...snapshot.canvas });
+		setCanvas({ ...snapshot.canvas,
+			x: window.innerWidth / 2 - (snapshot.viewport.width / 2 - snapshot.canvas.x),
+			y: window.innerHeight / 2 - (snapshot.viewport.height / 2 - snapshot.canvas.y),
+		});
 		whiteboardRef.current?.replaceItems(snapshot.drawings);
 		// The normal persistence effect writes the merged local perspective. Do
 		// not store the host snapshot verbatim or it will replace this client's
 		// participant geometry on the next refresh.
 	}, []);
 
-	const applyPortableSnapshot = useCallback((snapshot: RoomSnapshot) => {
+	const applyPortableSnapshot = useCallback((incoming: RoomSnapshot) => {
+		const snapshot = migrateDrawingCoordinates(incoming);
+		const playbackRevision = crypto.randomUUID();
 		const panels: DynamicPanel[] = snapshot.panels.map(panel => ({
 			id: panel.id,
 			type: panel.type,
@@ -631,6 +642,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 			whiteboard: panel.whiteboard,
 			dawTracks: panel.dawTracks ? normaliseDawTracks(panel.dawTracks) : undefined,
 			playback: panel.playback,
+			playbackRevision,
 			mediaFileName: panel.type === 'audio' ? panel.audioFileName : panel.type === 'image' ? panel.imageFileName : panel.type === 'pdf' ? panel.pdfFileName : undefined,
 			recordingMetadata: panel.recordings,
 			recordings: []
@@ -753,19 +765,19 @@ export function Session({ roomCode, isHost }: SessionProps) {
 		if (msg.type === 'view-request') {
 			if (msg.id === 'local') {
 				const current = canvasStateRef.current;
-				sendSyncRef.current({ type: 'view-response', id: 'local', canvas: { ...current } });
+				sendSyncRef.current({ type: 'view-response', id: 'local', viewSpace: 'world-center', canvas: presentationView(current) });
 			}
 			return;
 		}
 		if (msg.type === 'view-response') {
 			if (pendingViewRequestRef.current === msg.id) {
 				pendingViewRequestRef.current = null;
-				setCanvas({ ...msg.canvas });
+				setCanvas(msg.viewSpace === 'world-center' ? canvasFromPresentation(msg.canvas) : { ...msg.canvas });
 			}
 			return;
 		}
 		if (msg.type === 'view-suggestion') {
-			setViewSuggestion({ from: msg.id, canvas: msg.canvas });
+			setViewSuggestion({ from: msg.id, canvas: msg.viewSpace === 'world-center' ? canvasFromPresentation(msg.canvas) : msg.canvas });
 			return;
 		}
 		if (msg.type === 'audio-theme') {
@@ -973,19 +985,19 @@ export function Session({ roomCode, isHost }: SessionProps) {
 		} else if (msg.type === 'file-abort') {
 			receiverRef.current.abort(msg.transferId);
 		} else if (msg.type === 'draw') {
-			whiteboardRef.current?.drawStroke(msg);
+			whiteboardRef.current?.drawStroke(convertDrawing({ x0: msg.x0, y0: msg.y0, x1: msg.x1, y1: msg.y1, color: msg.color, width: msg.width, ...(msg.nib ? { nib: msg.nib } : {}) }, msg.drawingViewport ?? { width: window.innerWidth, height: window.innerHeight }));
 			markWhiteboardDirty();
 		} else if (msg.type === 'draw-shape') {
-			whiteboardRef.current?.drawShape(msg.shape);
+			whiteboardRef.current?.drawShape(convertDrawing(msg.shape, msg.drawingViewport ?? { width: window.innerWidth, height: window.innerHeight }));
 			markWhiteboardDirty();
 		} else if (msg.type === 'draw-text') {
-			whiteboardRef.current?.drawText({ ...msg, kind: 'text', id: msg.id, font: msg.font as TextFont });
+			whiteboardRef.current?.drawText(convertDrawing({ kind: 'text', id: msg.id, x: msg.x, y: msg.y, text: msg.text, color: msg.color, size: msg.size, font: msg.font as TextFont }, msg.drawingViewport ?? { width: window.innerWidth, height: window.innerHeight }));
 			markWhiteboardDirty();
 		} else if (msg.type === 'text-edit') {
 			whiteboardRef.current?.editText(msg.id, msg.text);
 			markWhiteboardDirty();
 		} else if (msg.type === 'text-move') {
-			whiteboardRef.current?.moveText(msg.id, msg.x, msg.y);
+			whiteboardRef.current?.moveText(msg.id, msg.x * (msg.drawingViewport?.width ?? window.innerWidth) / DRAWING_VIEWPORT.width, msg.y * (msg.drawingViewport?.height ?? window.innerHeight) / DRAWING_VIEWPORT.height);
 			markWhiteboardDirty();
 		} else if (msg.type === 'draw-clear') {
 			whiteboardRef.current?.clearCanvas();
@@ -1237,19 +1249,15 @@ export function Session({ roomCode, isHost }: SessionProps) {
 			const id = crypto.randomUUID();
 			const tag: PositionTag = {
 				id,
-				x: r.x * window.innerWidth,
-				y: r.y * window.innerHeight,
+				x: r.x * DRAWING_VIEWPORT.width,
+				y: r.y * DRAWING_VIEWPORT.height,
 				w: r.w,
 				h: r.h,
 				label: `Area ${positionTagsRef.current.length + 1}`
 			};
 			setPositionTags(prev => [...prev, tag]);
 			setDockedIds(prev => (prev.includes(id) ? prev : [...prev, id]));
-			// Everything travels world-normalised (world pixels ÷ this viewport),
-			// like strokes and the long-press point tag — the receiver scales back
-			// up by its own viewport. `r` is already in those units; `tag` holds
-			// the local world-pixel version, and sending that instead is exactly
-			// the mistake that threw the peer's viewport off the canvas.
+			// Tags use the same absolute world pixels as shared panels.
 			sendSync({
 				type: 'position-tag',
 				id,
@@ -1341,7 +1349,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 		request();
 		const timer = setInterval(request, 1000);
 		return () => clearInterval(timer);
-	}, [sendSync, status]);
+	}, [connectionRevision, sendSync, status]);
 
 	useEffect(() => {
 		// Guests must adopt the shared layout before announcing their own panel;
@@ -1614,6 +1622,12 @@ export function Session({ roomCode, isHost }: SessionProps) {
 				: Math.max(0.25, Math.min(4, fitScale, idealScale));
 
 		const { x: fromX, y: fromY, scale: fromScale } = canvasStateRef.current;
+		if ((vw < 640 || (vh < 500 && window.matchMedia('(pointer: coarse)').matches)) && !positionTag) {
+			if (jumpAnimRef.current !== null) cancelAnimationFrame(jumpAnimRef.current);
+			const top = (document.querySelector('.whiteboard-tools')?.getBoundingClientRect().bottom ?? 152) + 12;
+			setCanvas(framePanel(target, { width: vw, height: vh }, top, 100));
+			return;
+		}
 		const destX = vw / 2 - (target.x + target.width / 2) * toScale;
 		const destY = vh / 2 - (target.y + target.height / 2) * toScale;
 		const dx = destX - fromX;
@@ -1642,13 +1656,9 @@ export function Session({ roomCode, isHost }: SessionProps) {
 	// Cancel any in-flight jump and pending timers on unmount
 	useEffect(() => {
 		const pulseTimers = pulseTimersRef.current;
-		const noteTimers = noteSendTimersRef.current;
-		const codeTimers = codeSendTimersRef.current;
 		return () => {
 			if (jumpAnimRef.current !== null) cancelAnimationFrame(jumpAnimRef.current);
 			Object.values(pulseTimers).forEach(clearTimeout);
-			Object.values(noteTimers).forEach(clearTimeout);
-			Object.values(codeTimers).forEach(clearTimeout);
 		};
 	}, []);
 
@@ -1717,7 +1727,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 	const handleParticipantDoubleClick = (entry: DockEntry) => {
 		if (entry.type === 'local') {
 			const current = canvasStateRef.current;
-			sendSync({ type: 'view-suggestion', id: 'local', canvas: { ...current } });
+			sendSync({ type: 'view-suggestion', id: 'local', viewSpace: 'world-center', canvas: presentationView(current) });
 			return;
 		}
 		pendingViewRequestRef.current = entry.id;
@@ -1732,13 +1742,13 @@ export function Session({ roomCode, isHost }: SessionProps) {
 		positionTags.forEach(tag => bounds.push({ x: tag.x, y: tag.y, width: tag.w ?? 1, height: tag.h ?? 1 }));
 		for (const item of whiteboardRef.current?.getItems() ?? []) {
 			if ('kind' in item && item.kind === 'text') {
-				const size = item.size * Math.min(window.innerWidth, window.innerHeight);
-				bounds.push({ x: item.x * window.innerWidth, y: item.y * window.innerHeight - size, width: Math.max(size, item.text.length * size * 0.55), height: size * 1.3 });
+				const size = item.size * Math.min(DRAWING_VIEWPORT.width, DRAWING_VIEWPORT.height);
+				bounds.push({ x: item.x * DRAWING_VIEWPORT.width, y: item.y * DRAWING_VIEWPORT.height - size, width: Math.max(size, item.text.length * size * 0.55), height: size * 1.3 });
 			} else if ('x0' in item) {
-				const x0 = item.x0 * window.innerWidth;
-				const y0 = item.y0 * window.innerHeight;
-				const x1 = item.x1 * window.innerWidth;
-				const y1 = item.y1 * window.innerHeight;
+				const x0 = item.x0 * DRAWING_VIEWPORT.width;
+				const y0 = item.y0 * DRAWING_VIEWPORT.height;
+				const x1 = item.x1 * DRAWING_VIEWPORT.width;
+				const y1 = item.y1 * DRAWING_VIEWPORT.height;
 				bounds.push({ x: Math.min(x0, x1), y: Math.min(y0, y1), width: Math.max(1, Math.abs(x1 - x0)), height: Math.max(1, Math.abs(y1 - y0)) });
 			}
 		}
@@ -1805,7 +1815,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 				}}
 				title={`Tag ${label}`}
 				aria-label={`Tag ${label}`}
-				className="absolute top-0 left-0 z-30 flex items-center gap-1 rounded-md bg-brand-600/95 hover:bg-brand-500 text-white text-[11px] font-medium px-1.5 py-1 shadow-lg pointer-events-auto"
+				className="zoom-tag-handle absolute top-0 left-0 z-30 flex items-center gap-1 rounded-md bg-brand-600/95 hover:bg-brand-500 text-white text-[11px] font-medium px-1.5 py-1 shadow-lg pointer-events-auto"
 				style={{
 					transform: `scale(${1 / canvas.scale})`,
 					transformOrigin: 'top left'
@@ -1892,6 +1902,11 @@ export function Session({ roomCode, isHost }: SessionProps) {
 
 		// Only sync outward for locally-initiated spawns
 		if (!remoteId) {
+			if (window.innerWidth < 640 || (window.innerHeight < 500 && window.matchMedia('(pointer: coarse)').matches)) {
+				if (jumpAnimRef.current !== null) cancelAnimationFrame(jumpAnimRef.current);
+				const top = (document.querySelector('.whiteboard-tools')?.getBoundingClientRect().bottom ?? 152) + 12;
+				setCanvas(framePanel(state, { width: window.innerWidth, height: window.innerHeight }, top, 100));
+			}
 			if (type === 'youtube') {
 				sendSync({ type: 'spawn-youtube', id, videoId: extra?.initialVideoId, state: normalisePanel(state) });
 			} else if (type === 'whiteboard') {
@@ -1946,27 +1961,15 @@ export function Session({ roomCode, isHost }: SessionProps) {
 		}
 	};
 
-	// Note edits are sent whole but debounced, so typing doesn't flood the
-	// channel. The local state updates immediately either way.
-	const noteSendTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+	// Publish edits when they are applied locally so their shared revision has
+	// the same ordering as the UI; a delayed send can otherwise revive stale text.
 	const updateNote = (id: string, note: NoteContent) => {
 		setDynamicPanels(prev => prev.map(p => (p.id === id ? { ...p, note } : p)));
-		const timers = noteSendTimersRef.current;
-		if (timers[id]) clearTimeout(timers[id]);
-		timers[id] = setTimeout(() => {
-			sendSync({ type: 'note-update', id, note });
-			delete timers[id];
-		}, 250);
+		sendSync({ type: 'note-update', id, note });
 	};
-
-	const codeSendTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
 	const updateCode = (id: string, code: CodeContent) => {
 		setDynamicPanels(prev => prev.map(p => (p.id === id ? { ...p, code } : p)));
-		if (codeSendTimersRef.current[id]) clearTimeout(codeSendTimersRef.current[id]);
-		codeSendTimersRef.current[id] = setTimeout(() => {
-			sendSync({ type: 'code-update', id, code });
-			delete codeSendTimersRef.current[id];
-		}, 250);
+		sendSync({ type: 'code-update', id, code });
 	};
 	const updatePanelPlayback = useCallback((id: string, playback: NonNullable<DynamicPanel['playback']>) => {
 		setDynamicPanels(prev => prev.map(panel => panel.id === id ? { ...panel, playback } : panel));
@@ -2102,11 +2105,11 @@ export function Session({ roomCode, isHost }: SessionProps) {
 			const item: WhiteboardText = {
 				kind: 'text',
 				id: crypto.randomUUID(),
-				x: (px - canvasStateRef.current.x) / canvasStateRef.current.scale / window.innerWidth,
-				y: (py - canvasStateRef.current.y) / canvasStateRef.current.scale / window.innerHeight,
+				x: (px - canvasStateRef.current.x) / canvasStateRef.current.scale / DRAWING_VIEWPORT.width,
+				y: (py - canvasStateRef.current.y) / canvasStateRef.current.scale / DRAWING_VIEWPORT.height,
 				text: raw.split('\n')[0].slice(0, 200),
 				color: activeColor,
-				size: wbTextSize / Math.min(window.innerWidth, window.innerHeight),
+				size: wbTextSize / Math.min(DRAWING_VIEWPORT.width, DRAWING_VIEWPORT.height),
 				font: wbFont
 			};
 			whiteboardRef.current?.drawText(item);
@@ -2141,9 +2144,16 @@ export function Session({ roomCode, isHost }: SessionProps) {
 		const el = containerRef.current;
 		if (!el) return;
 
+		let panTouch: { id: number; x: number; y: number } | null = null;
 		const onTouchStart = (e: TouchEvent) => {
 			if (overviewOpenRef.current) return;
-			if (e.touches.length < 2) return;
+			if (e.touches.length === 1 && wbTool === 'pointer' && e.target instanceof HTMLCanvasElement) {
+				const touch = e.touches[0];
+				panTouch = { id: touch.identifier, x: touch.clientX, y: touch.clientY };
+				return;
+			}
+			panTouch = null;
+			if (e.touches.length < 2 || (e.target as Element)?.closest('[data-canvas-chrome], .no-drag, input, textarea, select, button')) return;
 			const t0 = e.touches[0];
 			const t1 = e.touches[1];
 			gestureRef.current = {
@@ -2157,6 +2167,15 @@ export function Session({ roomCode, isHost }: SessionProps) {
 
 		const onTouchMove = (e: TouchEvent) => {
 			if (overviewOpenRef.current) return;
+			if (e.touches.length === 1 && panTouch) {
+				const touch = e.touches[0];
+				if (touch.identifier !== panTouch.id) return;
+				e.preventDefault();
+				const dx = touch.clientX - panTouch.x, dy = touch.clientY - panTouch.y;
+				setCanvas(previous => ({ ...previous, x: previous.x + dx, y: previous.y + dy }));
+				panTouch = { id: touch.identifier, x: touch.clientX, y: touch.clientY };
+				return;
+			}
 			if (e.touches.length < 2 || !gestureRef.current) return;
 			e.preventDefault();
 			const t0 = e.touches[0];
@@ -2168,33 +2187,27 @@ export function Session({ roomCode, isHost }: SessionProps) {
 			};
 			const { lastDist, lastMid } = gestureRef.current;
 			const factor = lastDist > 0 ? dist / lastDist : 1;
-			setCanvas(prev => {
-				const s = Math.min(4, Math.max(0.25, prev.scale * factor));
-				// Zoom toward the midpoint between the two fingers, then pan
-				const zoomedX = mid.x - ((mid.x - prev.x) / prev.scale) * s;
-				const zoomedY = mid.y - ((mid.y - prev.y) / prev.scale) * s;
-				return {
-					x: zoomedX + (mid.x - lastMid.x),
-					y: zoomedY + (mid.y - lastMid.y),
-					scale: s
-				};
-			});
+			setCanvas(prev => transformGesture(prev, lastMid, mid, factor));
 			gestureRef.current = { lastDist: dist, lastMid: mid };
 		};
 
 		const onTouchEnd = (e: TouchEvent) => {
+			panTouch = null;
 			if (e.touches.length < 2) gestureRef.current = null;
 		};
 
 		el.addEventListener('touchstart', onTouchStart, { passive: true });
 		el.addEventListener('touchmove', onTouchMove, { passive: false });
 		el.addEventListener('touchend', onTouchEnd, { passive: true });
+		el.addEventListener('touchcancel', onTouchEnd, { passive: true });
 		return () => {
 			el.removeEventListener('touchstart', onTouchStart);
 			el.removeEventListener('touchmove', onTouchMove);
 			el.removeEventListener('touchend', onTouchEnd);
+			el.removeEventListener('touchcancel', onTouchEnd);
+			gestureRef.current = null;
 		};
-	}, []);
+	}, [wbTool]);
 
 	// Space key → pan mode (shows grab-cursor overlay that intercepts all clicks)
 	useEffect(() => {
@@ -2323,7 +2336,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 
 	return (
 		<div
-			className="relative w-screen h-screen overflow-hidden select-none"
+			className="session-screen relative w-full h-full overflow-hidden select-none"
 			ref={containerRef}
 			style={{
 				backgroundColor: '#111',
@@ -2412,7 +2425,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 			{/* Top bar — fixed overlay, not part of draggable canvas */}
 			<div
 				data-canvas-chrome
-				className="absolute top-0 left-0 right-0 z-[1000] flex items-center justify-between px-2 sm:px-4 bg-zinc-950/90 backdrop-blur-sm border-b border-zinc-800/60"
+				className="session-header absolute top-0 left-0 right-0 z-[1000] flex items-center justify-between px-2 sm:px-4 bg-zinc-950/90 backdrop-blur-sm border-b border-zinc-800/60"
 				style={{
 					paddingTop: 'env(safe-area-inset-top)',
 					paddingBottom: '0.5rem'
@@ -2475,7 +2488,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 				<div className="fixed right-3 z-[999] hidden max-h-[calc(100vh-5rem)] w-32 shrink-0 flex-col items-stretch gap-1.5 overflow-y-auto lg:flex" style={{ top: 'calc(3rem + env(safe-area-inset-top) + 0.75rem)' }}>
 					<button
 						onClick={() => void screenShare.toggle()}
-						disabled={screenShare.busy || !localStream}
+						disabled={!screenShare.supported || screenShare.busy || !localStream}
 						aria-pressed={screenShare.sharing}
 						title={screenShare.sharing ? 'Stop sharing your screen' : 'Share your screen with participants'}
 						className="grid w-full grid-cols-[1.25rem_1fr] items-center gap-1.5 text-left [&>:first-child]:justify-self-center bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-violet-300 text-xs font-medium px-3 py-2 rounded-lg transition-colors disabled:opacity-50">
@@ -2568,12 +2581,15 @@ export function Session({ roomCode, isHost }: SessionProps) {
 						</svg>
 					</button>
 					{widgetMenuOpen && (
-						<div className="absolute right-0 mt-2 w-40 bg-zinc-900/95 backdrop-blur border border-zinc-700 rounded-xl p-1.5 shadow-xl z-50">
+						<div className="widget-menu absolute right-0 mt-2 w-48 overflow-y-auto bg-zinc-900/95 backdrop-blur border border-zinc-700 rounded-xl p-1.5 shadow-xl z-50">
+                            <button onClick={() => { void exportRoomBundle(); setWidgetMenuOpen(false); }} className="sm:hidden w-full rounded-lg px-2.5 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-800">Export room bundle</button>
+                            <button onClick={() => { roomBundleInputRef.current?.click(); setWidgetMenuOpen(false); }} className="sm:hidden w-full rounded-lg px-2.5 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-800">Import room bundle</button>
+							<button onClick={() => { spawnPanel('recorder', window.innerWidth / 2, window.innerHeight / 2); setWidgetMenuOpen(false); }} className="w-full rounded-lg px-2.5 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-800">Record canvas</button>
 							<button onClick={() => { spawnPanel('whiteboard', window.innerWidth / 2, window.innerHeight / 2); setWidgetMenuOpen(false); }} className="w-full rounded-lg px-2.5 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-800">Whiteboard</button>
-							<button disabled={screenShare.busy || !localStream} aria-pressed={screenShare.sharing}
+							<button disabled={!screenShare.supported || screenShare.busy || !localStream} aria-pressed={screenShare.sharing}
 								onClick={() => { void screenShare.toggle(); setWidgetMenuOpen(false); }}
 								className="w-full text-left px-2.5 py-2 text-xs text-violet-300 rounded-lg hover:bg-zinc-800 disabled:opacity-50">
-								{screenShare.sharing ? 'Stop sharing' : 'Share screen'}
+								{!screenShare.supported ? 'Screen sharing unavailable' : screenShare.sharing ? 'Stop sharing' : 'Share screen'}
 							</button>
 							<button
 								onClick={() => {
@@ -2646,7 +2662,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 					</svg>
 					<span className="hidden lg:inline">{presentingId ? 'Stop presenting' : 'Present'}</span>
 				</button>
-				<div className="flex shrink-0 items-center gap-1">
+				<div className="hidden sm:flex shrink-0 items-center gap-1">
 					<button
 						onClick={exportRoomBundle}
 						className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 text-zinc-400 transition-colors hover:bg-zinc-700 hover:text-white"
@@ -2991,6 +3007,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 						panelId={panel.id}
 						minimized={minimizedIds.includes(panel.id)}
 						onMinimize={() => minimizePanel(panel.id)}
+						landscapeLabel={panel.type === 'daw' ? 'DAW' : panel.type === 'youtube' ? 'YouTube' : undefined}
 						minimizeControlHandled={panel.type === 'whiteboard' || panel.type === 'youtube' || panel.type === 'code' || panel.type === 'daw'}
 						state={panel.state}
 						excludeFromRecording={panel.type === 'recorder'}
@@ -3035,6 +3052,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 								dataConnection={dataConnection}
 								initialVideoId={panel.initialVideoId}
 								initialPlayback={panel.playback}
+								playbackRevision={panel.playbackRevision}
 								onPlaybackChange={playback => updatePanelPlayback(panel.id, playback)}
 								onVideoChange={videoId => updateDynamicPanel(panel.id, { initialVideoId: videoId })}
 								onClose={() => removePanel(panel.id)}
@@ -3072,6 +3090,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 								getCanvasElement={() => containerRef.current}
 								recordings={panel.recordings}
 								initialPlayback={panel.playback}
+								playbackRevision={panel.playbackRevision}
 								onPlaybackChange={playback => updatePanelPlayback(panel.id, playback)}
 								onRecordingComplete={recording => {
 									updateDynamicPanel(panel.id, { recordings: [...(panel.recordings ?? []), recording] });
@@ -3111,6 +3130,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 								dataConnection={dataConnection}
 								initialFile={panel.initialFile}
 								initialPlayback={panel.playback}
+								playbackRevision={panel.playbackRevision}
 								onPlaybackChange={playback => updatePanelPlayback(panel.id, playback)}
 								onClose={() => removePanel(panel.id)}
 								spatialVolume={spatialVolumeForPanel(panel.state)}

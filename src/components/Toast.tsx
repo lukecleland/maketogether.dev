@@ -9,7 +9,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     {children}
     <div ref={setTarget} data-canvas-chrome aria-label="Notifications"
       className="pointer-events-none fixed left-1/2 z-[1100] flex max-h-[50dvh] w-max max-w-[min(24rem,calc(100vw-2rem))] -translate-x-1/2 flex-col items-center gap-2 overflow-y-auto"
-      style={{ top: 'calc(3rem + env(safe-area-inset-top) + 0.5rem)' }} />
+      style={{ top: 'calc(var(--session-header-height, 3rem) + env(safe-area-inset-top) + 0.5rem)' }} />
   </ToastTarget.Provider>;
 }
 

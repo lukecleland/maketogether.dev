@@ -145,7 +145,7 @@ function dawClient({ microphone } = {}) {
     './DawRegionEditor': {},
     './DawLoopSections': {},
     '../utils/dawShortcuts': {}, './Toast': {}, './DawCreateTrackDialog': {}, './DawWaveform': {}, './DawInstrument': {}, './DawPanDial': {}, './DawMenu': {}, './DawTransportIcon': {},
-    '../hooks/useDawSync': { useDawSync: (_id, _connection, onReceive, _preview, onView, onVoices) => { receive = onReceive; receiveView = onView; receiveVoices = onVoices; return { publish: (...args) => published.push(args), publishView() {}, publishVoices() {} }; } },
+    '../hooks/useDawSync': { useDawSync: (_id, _connection, onReceive, _preview, onView, onVoices) => { receive = onReceive; receiveView = onView; receiveVoices = onVoices; return { ownerId: 'local', publish: (...args) => { published.push(args); return { mode: args[0], position: args[1], at: Date.now(), id: `local-${published.length}`, owner: 'local', revision: published.length }; }, publishView() {}, publishVoices() {} }; } },
   }, { OfflineAudioContext: function(channels, length, sampleRate) {
     this.length = length; this.numberOfChannels = channels; this.sampleRate = sampleRate; this.duration = length / sampleRate;
     const samples = Array.from({ length: channels }, () => new Float32Array(length));
@@ -314,13 +314,19 @@ test('iPad interrupted audio keeps Enable audio visible and does not schedule in
   assert.equal(client.published.length, 0);
 });
 
-test('Enable audio remains available when a local Play attempt has not unlocked the context', async () => {
+test('local DAW Play publishes before audio permission and catches up when enabled', async () => {
   const client = dawClient(), tracks = [client.track('Shared')];
   client.render(tracks); client.button('Play').props.onClick();
+  assert.equal(client.published.length, 1);
+  assert.equal(client.published[0][0], 'playing');
   client.resume('interrupted'); await flush(); client.render(tracks);
   assert.ok(client.button('Enable audio'));
   assert.equal(client.schedules.length, 0);
-  assert.equal(client.published.length, 0);
+  client.advance(5); client.button('Enable audio').props.onClick();
+  client.resume(); await flush(); client.resume(); await flush();
+  assert.equal(client.schedules.length, 1);
+  assert.ok(client.schedules[0].position >= 5);
+  assert.equal(client.published.length, 1, 'local audio recovery must not restart the shared clock');
 });
 
 test('microphone recording begins audio unlock inside the initiating gesture before permission resolves', async () => {
@@ -426,7 +432,7 @@ test('empty DAW plays and seeks past clips without resetting; the frame clock co
   client.button('Play').props.onClick(); client.resume(); await flush(); client.render([]);
   const animation = client.effects.find(effect => effect.deps?.length === 3 && effect.deps[0] === true);
   assert.ok(animation); const cleanup = animation.fn();
-  client.ctx.currentTime = 145; client.frame(); client.render([]);
+  client.ctx.currentTime = 145; client.advance(145); client.frame(); client.render([]);
   assert.equal(client.button('Pause').props['aria-pressed'], true);
   client.button('Forward').props.onClick();
   assert.deepEqual(client.published.at(-1), ['playing', 147]);
@@ -539,4 +545,14 @@ test('joining adjacent recorded portions creates one shared file and Undo restor
   client.render([t]); client.button('Undo region edit').props.onClick();
   const restored = client.trackUpdates.at(-1).regions.filter(r => !r.deleted);
   assert.equal(restored.length, 2); assert.ok(restored.every(r => r.name === t.regions[0].name || r.name === t.regions[1].name));
+});
+
+test('the DAW playback owner publishes Stop at the end of the shared timeline', async () => {
+  const client = dawClient(); client.render([]);
+  client.button('Play').props.onClick(); client.resume(); await flush(); client.render([]);
+  const animation = client.effects.find(effect => effect.deps?.length === 3 && effect.deps[0] === true);
+  const cleanup = animation.fn();
+  client.advance(1801); client.frame();
+  assert.deepEqual(client.published.at(-1), ['stopped', 1800]);
+  cleanup();
 });

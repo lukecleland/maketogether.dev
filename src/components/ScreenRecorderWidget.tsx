@@ -22,6 +22,7 @@ interface ScreenRecorderWidgetProps {
   docked?: boolean;
   onToggleDock?: () => void;
   initialPlayback?: PanelPlayback;
+  playbackRevision?: string;
   onPlaybackChange?: (playback: PanelPlayback) => void;
   title?: string;
   /** Resolves the live canvas workspace without invoking display capture. */
@@ -96,6 +97,7 @@ export function ScreenRecorderWidget({
   docked = false,
   onToggleDock,
   initialPlayback,
+  playbackRevision,
   onPlaybackChange,
   title = "Canvas recorder",
   getCanvasElement,
@@ -120,7 +122,7 @@ export function ScreenRecorderWidget({
   const [audioBlocked, setAudioBlocked] = useState(false);
   const playbackRef = useRef<SharedAudioPlayback | null>(null);
   if (!playbackRef.current) playbackRef.current = new SharedAudioPlayback(
-    () => !videoRef.current?.srcObject && loadedClipRef.current === pendingPlaybackRef.current?.recordingId ? videoRef.current : null,
+    () => !videoRef.current?.srcObject && (!pendingPlaybackRef.current || loadedClipRef.current === pendingPlaybackRef.current.recordingId) ? videoRef.current : null,
     setAudioBlocked,
   );
   const onPlaybackChangeRef = useRef(onPlaybackChange);
@@ -161,6 +163,17 @@ export function ScreenRecorderWidget({
   }, [recordings]);
 
   useEffect(() => {
+    if (!playbackRevision || recording || !initialPlayback?.recordingId) return;
+    pendingPlaybackRef.current = { ...initialPlayback, recordingId: initialPlayback.recordingId };
+    const clip = clips.find(item => item.id === initialPlayback.recordingId);
+    if (clip) showClip(clip);
+    syncUntilRef.current = Date.now() + 600;
+    playbackRef.current!.set(pendingPlaybackRef.current);
+    // Only restore on receipt of an authoritative snapshot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playbackRevision]);
+
+  useEffect(() => {
     if (recording || !selectedId) return;
     const selected = clips.find(clip => clip.id === selectedId);
     if (selected) showClip(selected);
@@ -173,8 +186,8 @@ export function ScreenRecorderWidget({
   useEffect(() => {
     if (recording || !selectedId || !onPlaybackChange) return;
     const timer = setInterval(() => {
-      const video = videoRef.current;
-      if (video) onPlaybackChangeRef.current?.({ recordingId: selectedId, time: video.currentTime, playing: !video.paused });
+      const playback = playbackRef.current!.snapshot(pendingPlaybackRef.current ?? undefined);
+      if (playback) onPlaybackChangeRef.current?.({ ...playback, recordingId: pendingPlaybackRef.current?.recordingId ?? selectedId });
     }, 1000);
     return () => clearInterval(timer);
   }, [onPlaybackChange, recording, selectedId]);

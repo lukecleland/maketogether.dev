@@ -163,10 +163,28 @@ The WebRTC data channel carries typed messages for:
 - Chunked image, audio-file and recording transfers
 - Collaborative code and synchronized recording playback
 
-Panel geometry and canvas coordinates are normalized before transmission so
-participants with different viewport sizes still share the same logical
-workspace. YouTube and audio playback commands include a wall-clock timestamp
-so receivers can compensate for data-channel transit time.
+Panels use absolute canvas-world pixels. Drawing fractions use a fixed
+1920 × 1080 reference on every device, independent of screen size, rotation,
+and pixel density; older room snapshots migrate from their saved viewport.
+Viewport handoffs transmit a world center so phones and desktops see the same
+place. Notes, code, panel geometry and media controls use logical revisions
+with a stable peer tie-breaker so concurrent edits converge without depending
+on device wall clocks. Deleted panels reject delayed edits.
+
+Playback snapshots preserve shared intent and its timestamp while local audio
+is blocked or files load. YouTube queues controls until its iframe is ready.
+New data connections request fresh room state even if another peer remained
+connected; existing media files are retained while the state is restored.
+Media timestamps compensate for transit/transfer delays, but require reasonably
+aligned device clocks and do not provide sample-accurate live audio.
+
+Run `npm test` for synchronization and media regressions. For the full-app
+multi-device test, install WebKit with `npx playwright install webkit`, then run
+`npm run test:browser`. It uses isolated desktop, iPhone and tablet browser
+contexts and controlled data transport to check live edits, drawings, late
+joins, rotation and rejoining. It does not emulate cellular networks or actual
+camera/microphone permissions. Refresh every participant's page after upgrading
+so all clients use the shared coordinate and revision protocol.
 
 ## Local development
 
@@ -496,3 +514,14 @@ in the initial HTML, including a public 1200 × 630 PNG. Run
 existing brand mark and Outfit font. When replacing the artwork, use a new image
 filename in both the generator and metadata so cached images can refresh. Room
 invitation URLs retain their `?room=` parameter.
+
+### iPhone controls
+
+On narrow screens the header uses two rows; import/export and canvas recording
+are in **Add widget**. Use **Pointer** to pan the background with one finger,
+or use two fingers to pan and pinch. New panels and dock navigation frame the
+panel below the drawing toolbar. Touch resizing ends cleanly when a gesture is
+cancelled. YouTube link controls remain visible without hover and videos request
+inline playback. The landing form scrolls when the keyboard reduces the visible
+viewport. Screen sharing is disabled when the browser does not expose screen
+capture; receiving another participant's screen remains available.

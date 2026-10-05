@@ -190,18 +190,12 @@ export function StickyNote({ note, onChange, onClose, docked = false, onToggleDo
   const removeChord = (i: number) => writeChords(chords.filter((_, j) => j !== i));
   const setKind = (kind: NoteKind) => set({ kind });
 
-  // Apply remote text edits to the textarea. The field is uncontrolled so that
-  // typing never fights React, which means remote changes have to be written in
-  // by hand. Skipped only while you are *actively* typing — holding off just
-  // because the field has focus would mean an idle cursor silently blocks the
-  // other person's edits from ever appearing.
+  // Apply the winning shared text even while focused. Ignoring a remote edit
+  // during typing left the DOM stale forever when no later edit arrived.
   const textRef = useRef<HTMLTextAreaElement>(null);
-  const lastTypedRef = useRef(0);
   useEffect(() => {
     const el = textRef.current;
     if (!el || el.value === note.text) return;
-    const activelyTyping = document.activeElement === el && Date.now() - lastTypedRef.current < 1200;
-    if (activelyTyping) return;
     const atEnd = el.selectionStart === el.value.length;
     el.value = note.text;
     fitNoteText(el);
@@ -308,7 +302,6 @@ export function StickyNote({ note, onChange, onClose, docked = false, onToggleDo
             ref={textRef}
             defaultValue={note.text}
             onChange={e => {
-              lastTypedRef.current = Date.now();
               fitNoteText(e.target);
               set({ text: e.target.value });
             }}

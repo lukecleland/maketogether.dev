@@ -200,8 +200,8 @@ const SHAPES: Array<{ id: ShapeKind; label: string }> = [
 ];
 
 /** Below the top bar, allowing for the iOS safe-area inset. */
-const TOP_OFFSET = "calc(3rem + env(safe-area-inset-top) + 0.5rem)";
-const PANEL_OFFSET = "calc(3rem + env(safe-area-inset-top) + 3.5rem)";
+const TOP_OFFSET = "calc(var(--session-header-height, 3rem) + env(safe-area-inset-top) + 0.5rem)";
+const PANEL_OFFSET = "calc(var(--session-header-height, 3rem) + env(safe-area-inset-top) + 3.5rem)";
 
 export function WhiteboardToolbar({
   tool,
@@ -308,7 +308,7 @@ export function WhiteboardToolbar({
         data-canvas-chrome
         ref={islandRef}
         style={{ position: "fixed", zIndex: 999, top: TOP_OFFSET }}
-        className="left-1/2 -translate-x-1/2 flex items-center gap-1 bg-zinc-900/95 backdrop-blur border border-zinc-700 rounded-2xl p-1.5 shadow-xl select-none lg:left-3 lg:translate-x-0 lg:flex-col"
+        className="whiteboard-tools left-1/2 -translate-x-1/2 flex items-center gap-1 bg-zinc-900/95 backdrop-blur border border-zinc-700 rounded-2xl p-1.5 shadow-xl select-none lg:left-3 lg:translate-x-0 lg:flex-col"
       >
         {toolButton(
           "pointer",

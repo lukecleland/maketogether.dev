@@ -19,9 +19,19 @@ export class SharedAudioPlayback {
 
   set(intent: AudioPlaybackIntent) {
     if (!Number.isFinite(intent.time) || intent.time < 0 || (intent.at !== undefined && !Number.isFinite(intent.at))) return;
-    this.intent = intent;
+    this.intent = { ...intent, at: intent.at ?? Date.now() };
     this.revision++;
     this.apply();
+  }
+
+  snapshot(fallback?: AudioPlaybackIntent): AudioPlaybackIntent | null {
+    const media = this.media();
+    const intent = this.intent ?? fallback;
+    const at = Date.now();
+    if (!intent) return media ? { time: media.currentTime, playing: !media.paused, at } : null;
+    const time = intent.time + (intent.playing && intent.at !== undefined ? Math.max(0, at - intent.at) / 1000 : 0);
+    const duration = media && media.readyState >= 1 && Number.isFinite(media.duration) ? media.duration : Infinity;
+    return { time: Math.min(time, duration), playing: intent.playing && time < duration, at };
   }
 
   reset() {

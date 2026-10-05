@@ -1,10 +1,11 @@
+import { DRAWING_VIEWPORT } from '../utils/drawingCoordinates';
 import type { AudioTheme } from '../utils/audioTheme';
 import type { BoardChange } from "../utils/whiteboardPanel";
 import type { DawTrack } from "../utils/daw";
 import { useCallback, useEffect, useEffectEvent } from 'react';
 import type { RoomDataConnection } from './usePeer';
 import type { CodeContent, NoteContent, PanelState } from '../types/panels';
-import type { WhiteboardShape } from '../components/Whiteboard';
+import type { WhiteboardShape, Nib } from '../components/Whiteboard';
 import type { PersistedConnector } from '../utils/roomPersistence';
 import type { RoomSnapshot } from '../utils/roomPersistence';
 
@@ -27,10 +28,8 @@ import type { RoomSnapshot } from '../utils/roomPersistence';
  * All message variants that travel over the WebRTC data channel.
  *
  * - `load` / `play` / `pause` / `seek` — YouTube playback sync (handled by YoutubeWidget)
- * - `panel-update` — panel position/size/z sync; x/y/width/height are viewport fractions 0–1
- *   so they land correctly regardless of each peer's screen resolution
- * - `draw` — a single whiteboard stroke segment; x/y are viewport fractions, width is a
- *   fraction of Math.min(viewportW, viewportH) for DPR-independent sizing
+ * - `panel-update` — panel position/size/z in absolute world CSS pixels
+ * - `draw` — a single whiteboard stroke segment; coordinates use the declared shared drawingViewport basis
  * - `draw-clear` — clears the whiteboard canvas for both peers
  * - `dock-tag` / `dock-rename` — shared bookmarks. Tagging a panel puts a chip
  *   in the *other* peer's dock too (pulsing, so they notice); renaming updates
@@ -39,14 +38,14 @@ import type { RoomSnapshot } from '../utils/roomPersistence';
  *   fixed video panels the id is swapped on receipt, exactly as `panel-update`
  *   does — your "You" is their "Guest".
  */
-export type SyncMessage =
+export type SyncMessage = (
 	| { type: 'room-state-request'; requestId?: string }
 	| { type: 'room-state-snapshot'; snapshot: RoomSnapshot; requestId?: string }
 	| { type: 'room-state-import'; snapshot: RoomSnapshot }
 	| { type: 'load'; id: string; videoId: string }
 	| { type: 'play'; id: string; time: number; at?: number }
 	| { type: 'pause'; id: string; time: number; at?: number }
-	| { type: 'seek'; id: string; time: number; at?: number }
+	| { type: 'seek'; id: string; time: number; at?: number; playing?: boolean }
 	| { type: 'audio-play'; id: string; time: number; at?: number }
 	| { type: 'audio-pause'; id: string; time: number; at?: number }
 	| { type: 'audio-seek'; id: string; time: number; at?: number; playing?: boolean }
@@ -60,6 +59,7 @@ export type SyncMessage =
 			y1: number;
 			color: string;
 			width: number;
+			nib?: Nib;
 	  }
 	| { type: 'draw-clear' }
 	| { type: 'draw-shape'; shape: WhiteboardShape }
@@ -151,7 +151,7 @@ export type SyncMessage =
 	  }
 	/** One slice of a file, base64, placed by index rather than appended. */
 	| { type: 'file-chunk'; transferId: string; index: number; data: string }
-	| { type: 'file-abort'; transferId: string };
+	| { type: 'file-abort'; transferId: string }) & { viewSpace?: 'world-center'; drawingViewport?: { width: number; height: number } };
 
 interface UseYouTubeSyncOptions {
 	dataConnection: RoomDataConnection | null;
@@ -177,7 +177,8 @@ export function useYouTubeSync({ dataConnection, onRemoteSync }: UseYouTubeSyncO
 	const sendSync = useCallback(
 		(msg: SyncMessage, targetPeerId?: string) => {
 			if (dataConnection?.open) {
-				dataConnection.send(targetPeerId ? { ...msg, __meshTargetPeerId: targetPeerId } : msg);
+				const outgoing = { ...msg, drawingViewport: DRAWING_VIEWPORT };
+				dataConnection.send(targetPeerId ? { ...outgoing, __meshTargetPeerId: targetPeerId } : outgoing);
 			}
 		},
 		[dataConnection]

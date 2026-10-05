@@ -18,8 +18,7 @@ import { useEffect, useRef, useCallback, type RefObject } from "react";
  * ## Echo prevention
  * `onStateChange` is called for every playback state transition, including
  * intermediate ones (buffering=3, cued=5). Callers should filter to terminal
- * states 1 (playing) and 2 (paused) and use a time-window guard to avoid
- * echoing remote-triggered state changes back to the peer.
+ * states 1 (playing) and 2 (paused) and distinguish shared commands from local player events.
  */
 
 // ----- Minimal YT types (avoids needing @types/youtube) -----
@@ -28,7 +27,10 @@ interface YTPlayer {
   pauseVideo(): void;
   seekTo(seconds: number, allowSeekAhead: boolean): void;
   getCurrentTime(): number;
-  loadVideoById(videoId: string): void;
+  loadVideoById(videoId: string, startSeconds?: number): void;
+  cueVideoById(videoId: string, startSeconds?: number): void;
+  getDuration(): number;
+  getPlayerState(): number;
   setVolume(volume: number): void;
   destroy(): void;
   /**
@@ -44,6 +46,7 @@ interface YTPlayerOptions {
   height?: string | number;
   playerVars?: Record<string, unknown>;
   events?: {
+    onAutoplayBlocked?: () => void;
     onReady?: (event: { target: YTPlayer }) => void;
     onStateChange?: (event: { data: number; target: YTPlayer }) => void;
   };
@@ -89,6 +92,7 @@ interface UseYouTubePlayerOptions {
    * (avoids holding a stale player reference in the callback closure).
    */
   onStateChange?: (state: number, getCurrentTime: () => number) => void;
+  onAutoplayBlocked?: () => void;
 }
 
 export function useYouTubePlayer(
@@ -96,9 +100,13 @@ export function useYouTubePlayer(
   options: UseYouTubePlayerOptions = {},
 ) {
   const playerRef = useRef<YTPlayer | null>(null);
+  const pendingTransportRef = useRef<{ time: number; playing: boolean; at: number } | null>(null);
+  const pendingVolumeRef = useRef<number | null>(null);
   const pendingVideoRef = useRef<string | null>(null);
-  const pendingPlaybackRef = useRef<{ videoId: string; time: number; playing: boolean } | null>(null);
+  const pendingPlaybackRef = useRef<{ videoId: string; time: number; playing: boolean; at?: number } | null>(null);
   // Always read the latest callback without re-creating the player
+  const onBlockedRef = useRef(options.onAutoplayBlocked);
+  onBlockedRef.current = options.onAutoplayBlocked;
   const onStateChangeRef = useRef(options.onStateChange);
   onStateChangeRef.current = options.onStateChange;
 
@@ -123,6 +131,7 @@ export function useYouTubePlayer(
         height: "100%",
         playerVars: {
           autoplay: 0,
+          playsinline: 1,
           modestbranding: 1,
           rel: 0,
           // Tells YouTube the exact origin allowed to communicate with the player.
@@ -130,25 +139,27 @@ export function useYouTubePlayer(
           origin: window.location.origin,
         },
         events: {
+          onAutoplayBlocked: () => { if (!cancelled) onBlockedRef.current?.(); },
           onReady: ({ target }) => {
             if (cancelled) return;
             playerRef.current = target;
-            // Apply any video that was requested before the player was ready
-            if (pendingVideoRef.current) {
-              target.loadVideoById(pendingVideoRef.current);
-              pendingVideoRef.current = null;
+            if (pendingVolumeRef.current !== null) target.setVolume(pendingVolumeRef.current);
+            const videoId = pendingPlaybackRef.current?.videoId ?? pendingVideoRef.current;
+            const transport = pendingTransportRef.current ?? pendingPlaybackRef.current;
+            if (videoId) {
+              const time = transport ? transport.time + (transport.playing && transport.at !== undefined ? Math.max(0, Date.now() - transport.at) / 1000 : 0) : 0;
+              if (transport?.playing === false) target.cueVideoById(videoId, time);
+              else target.loadVideoById(videoId, time);
+            } else if (transport) {
+              target.seekTo(transport.time + (transport.playing && transport.at !== undefined ? Math.max(0, Date.now() - transport.at) / 1000 : 0), true);
+              if (transport.playing) target.playVideo(); else target.pauseVideo();
             }
-            if (pendingPlaybackRef.current) {
-              const pending = pendingPlaybackRef.current;
-              target.loadVideoById(pending.videoId);
-              target.seekTo(pending.time, true);
-              if (pending.playing) target.playVideo();
-              else target.pauseVideo();
-              pendingPlaybackRef.current = null;
-            }
+            pendingVideoRef.current = null;
+            pendingPlaybackRef.current = null;
+            pendingTransportRef.current = null;
           },
           onStateChange: ({ data, target }) => {
-            if (cancelled) return;
+            if (cancelled || target.getPlayerState() !== data) return;
             onStateChangeRef.current?.(data, () => target.getCurrentTime());
           },
         },
@@ -170,6 +181,8 @@ export function useYouTubePlayer(
   }, []);
 
   const loadVideo = useCallback((videoId: string) => {
+    pendingPlaybackRef.current = null;
+    pendingTransportRef.current = null;
     if (playerRef.current) {
       playerRef.current.loadVideoById(videoId);
     } else {
@@ -179,35 +192,44 @@ export function useYouTubePlayer(
   }, []);
 
   const playVideo = useCallback(() => {
-    playerRef.current?.playVideo();
+    if (playerRef.current) playerRef.current.playVideo();
+    else pendingTransportRef.current = { time: pendingTransportRef.current?.time ?? pendingPlaybackRef.current?.time ?? 0, playing: true, at: Date.now() };
   }, []);
   const pauseVideo = useCallback(() => {
-    playerRef.current?.pauseVideo();
+    if (playerRef.current) playerRef.current.pauseVideo();
+    else {
+      const pending = pendingTransportRef.current ?? pendingPlaybackRef.current;
+      const time = (pending?.time ?? 0) + (pending?.playing && pending.at !== undefined ? Math.max(0, Date.now() - pending.at) / 1000 : 0);
+      pendingTransportRef.current = { time, playing: false, at: Date.now() };
+    }
   }, []);
   const seekTo = useCallback((seconds: number) => {
-    playerRef.current?.seekTo(seconds, true);
+    if (playerRef.current) playerRef.current.seekTo(seconds, true);
+    else pendingTransportRef.current = { time: seconds, playing: pendingTransportRef.current?.playing ?? pendingPlaybackRef.current?.playing ?? false, at: Date.now() };
   }, []);
 
   const setVolume = useCallback((volume: number) => {
-    playerRef.current?.setVolume(
-      Math.round(Math.max(0, Math.min(100, volume))),
-    );
+    pendingVolumeRef.current = Math.round(Math.max(0, Math.min(100, volume)));
+    playerRef.current?.setVolume(pendingVolumeRef.current);
   }, []);
 
-  const restorePlayback = useCallback((videoId: string, time: number, playing: boolean) => {
+  const restorePlayback = useCallback((videoId: string, time: number, playing: boolean, at?: number) => {
+    pendingTransportRef.current = null;
     const player = playerRef.current;
     if (!player) {
       pendingVideoRef.current = null;
-      pendingPlaybackRef.current = { videoId, time, playing };
+      pendingPlaybackRef.current = { videoId, time, playing, at: at ?? Date.now() };
       return;
     }
-    player.loadVideoById(videoId);
-    player.seekTo(time, true);
-    if (playing) player.playVideo();
-    else player.pauseVideo();
+    const position = time + (playing && at !== undefined ? Math.max(0, Date.now() - at) / 1000 : 0);
+    if (playing) player.loadVideoById(videoId, position);
+    else player.cueVideoById(videoId, position);
   }, []);
 
   const getCurrentTime = useCallback(() => playerRef.current?.getCurrentTime() ?? 0, []);
+
+  const getDuration = useCallback(() => playerRef.current?.getDuration() ?? 0, []);
+  const getPlayerState = useCallback(() => playerRef.current?.getPlayerState() ?? -1, []);
 
   /** Title of the loaded video, or null until the player has the metadata. */
   const getTitle = useCallback((): string | null => {
@@ -219,5 +241,5 @@ export function useYouTubePlayer(
     }
   }, []);
 
-  return { loadVideo, playVideo, pauseVideo, seekTo, setVolume, restorePlayback, getCurrentTime, getTitle };
+  return { loadVideo, playVideo, pauseVideo, seekTo, setVolume, restorePlayback, getCurrentTime, getTitle, getDuration, getPlayerState };
 }

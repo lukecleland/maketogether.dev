@@ -92,6 +92,7 @@ export function useDawSync(
     };
     latest.current = activity;
     send(activity);
+    return activity;
   };
   useEffect(() => {
     if (!connection) return;
@@ -188,6 +189,13 @@ export function useDawSync(
     connection.on("data", listener);
     if (connection.open)
       connection.send({ type: "daw-activity-request", panelId: id });
+    const recover = () => {
+      if (document.visibilityState === 'hidden') return;
+      // A sleeping phone must fetch current commands before declaring its owner lost.
+      lastSeen.current = Date.now();
+      if (connection.open) connection.send({ type: "daw-activity-request", panelId: id });
+    };
+    document.addEventListener('visibilitychange', recover);
     let tick = 0;
     const timer = setInterval(() => {
       tick++;
@@ -249,10 +257,11 @@ export function useDawSync(
     }, 250);
     return () => {
       clearInterval(timer);
+      document.removeEventListener('visibilitychange', recover);
       connection.off("data", listener);
       for (const peer of heldRemoteVoices.keys()) onVoices(peer, []);
       heldRemoteVoices.clear();
     };
   }, [connection, id]);
-  return { publish, publishView, publishVoices };
+  return { publish, publishView, publishVoices, ownerId: owner.current };
 }

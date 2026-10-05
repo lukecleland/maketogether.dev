@@ -71,7 +71,7 @@ function isPanel(value: unknown): boolean {
   if (value.code !== undefined && (!isObject(value.code) || typeof value.code.text !== "string" || typeof value.code.language !== "string")) return false;
   if (value.note !== undefined && (!isObject(value.note) || !["text", "chord", "tab"].includes(value.note.kind as string) || typeof value.note.text !== "string" || !Array.isArray(value.note.tab) || !value.note.tab.every(item => typeof item === "string") || !Array.isArray(value.note.chords) || !value.note.chords.every(isChord) || typeof value.note.colour !== "string")) return false;
   if (value.recordings !== undefined && (!Array.isArray(value.recordings) || !value.recordings.every(isRecording))) return false;
-  if (value.playback !== undefined && (!isObject(value.playback) || !isFiniteNumber(value.playback.time) || typeof value.playback.playing !== "boolean")) return false;
+  if (value.playback !== undefined && (!isObject(value.playback) || !isFiniteNumber(value.playback.time) || typeof value.playback.playing !== "boolean" || (value.playback.at !== undefined && !isFiniteNumber(value.playback.at)))) return false;
   return true;
 }
 
@@ -84,6 +84,7 @@ function isSnapshot(value: unknown): value is RoomSnapshot {
   if (!Array.isArray(value.positionTags) || value.positionTags.length > 10_000 || !value.positionTags.every(isPositionTag)) return false;
   if (!Array.isArray(value.dockedIds) || !value.dockedIds.every(id => typeof id === "string")) return false;
   if (!isObject(value.panelLabels) || !hasStringValues(value.panelLabels) || !isObject(value.customLabels) || !hasStringValues(value.customLabels) || !isObject(value.canvas)) return false;
+  if (value.drawingViewport !== undefined && (!isObject(value.drawingViewport) || !isFiniteNumber(value.drawingViewport.width) || value.drawingViewport.width <= 0 || !isFiniteNumber(value.drawingViewport.height) || value.drawingViewport.height <= 0)) return false;
   const canvas = value.canvas;
   if (!["x", "y", "scale"].every(key => isFiniteNumber(canvas[key])) || (canvas.scale as number) <= 0) return false;
   if (!isObject(value.viewport) || !isFiniteNumber(value.viewport.width) || value.viewport.width <= 0 || !isFiniteNumber(value.viewport.height) || value.viewport.height <= 0) return false;

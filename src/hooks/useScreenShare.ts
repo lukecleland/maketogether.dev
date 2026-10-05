@@ -5,6 +5,7 @@ export function useScreenShare(
   stream: MediaStream | null,
   replaceVideoTrack: (track: MediaStreamTrack | null) => Promise<void>,
 ) {
+  const supported = typeof navigator.mediaDevices?.getDisplayMedia === "function";
   const [sharing, setSharing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -112,5 +113,5 @@ export function useScreenShare(
       if (request === generation.current) setBusy(false);
     }
   };
-  return { sharing, busy, error, preview, toggle, stop };
+  return { supported, sharing, busy, error, preview, toggle, stop };
 }
