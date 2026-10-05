@@ -400,3 +400,22 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   [data-panel-expanded] [data-daw-root] > div:first-child,
   [data-panel-expanded] .drag-handle { display: none; }
 }
+
+.mobile-tools-toggle { display: none; }
+@media (max-width: 639px), (any-pointer: coarse) and (max-width: 1023px) {
+  .whiteboard-tools { padding: 2px; gap: 2px; border-radius: 9px; }
+  .whiteboard-tools > button {
+    width: 28px; height: 28px; min-width: 28px; border-radius: 6px;
+    flex-shrink: 0;
+  }
+  .whiteboard-tools > button > svg:first-child { width: 14px; height: 14px; }
+  .whiteboard-tools .mobile-tools-toggle { display: flex; align-items: center; justify-content: center; }
+  .whiteboard-tools[data-mobile-collapsed="true"] > button:not([aria-pressed="true"]):not(.mobile-tools-toggle),
+  .whiteboard-tools[data-mobile-collapsed="true"] > div { display: none; }
+  .whiteboard-tools .toolbar-tooltip { display: none; }
+  .whiteboard-properties { top: calc(var(--session-header-height, 3rem) + env(safe-area-inset-top) + 2.75rem) !important; }
+  .canvas-system-controls { padding: 2px; gap: 2px; border-radius: 9px; }
+  .canvas-system-controls button { min-width: 28px; width: 28px; height: 28px; padding: 5px; border-radius: 6px; }
+  .canvas-system-controls button span { display: none; }
+  .canvas-system-controls svg { width: 16px; height: 16px; }
+}

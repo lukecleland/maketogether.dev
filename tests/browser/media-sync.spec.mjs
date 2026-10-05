@@ -77,6 +77,17 @@ test('YouTube controls and DAW transport work across desktop and a blocked iPhon
     });
     for (const viewport of [{ width: 844, height: 390 }, { width: 667, height: 375 }, { width: 568, height: 320 }, { width: 932, height: 430 }]) {
       await phone.setViewportSize(viewport);
+      const toolbar = phone.locator('.whiteboard-tools');
+      expect((await toolbar.boundingBox()).width).toBeLessThanOrEqual(66);
+      expect((await toolbar.boundingBox()).height).toBeLessThanOrEqual(34);
+      await phone.getByRole('button', { name: 'Show drawing tools', exact: true }).click();
+      await phone.getByRole('button', { name: 'Pen', exact: true }).click();
+      await expect(phone.getByRole('button', { name: 'Pen', exact: true })).toHaveAttribute('aria-pressed', 'true');
+      await expect(phone.getByRole('button', { name: 'Show drawing tools', exact: true })).toBeVisible();
+      await phone.getByRole('button', { name: 'Show drawing tools', exact: true }).click();
+      await phone.getByRole('button', { name: 'Pointer', exact: true }).click();
+      expect((await phone.locator('.canvas-system-controls').boundingBox()).height).toBeLessThanOrEqual(34);
+      if (viewport.width === 844) await phone.screenshot({ path: '/private/tmp/maketogether-compact-toolbar.png' });
       await phone.getByRole('button', { name: 'Go to Make Music Together', exact: true }).click();
       await phone.getByRole('button', { name: 'Expand DAW', exact: true }).click();
       const expanded = phone.locator('[data-panel-expanded]');
@@ -108,6 +119,9 @@ test('YouTube controls and DAW transport work across desktop and a blocked iPhon
     await phone.screenshot({ path: '/private/tmp/maketogether-landscape-daw.png' });
     await phone.setViewportSize({ width: 390, height: 844 });
     await expect(phone.locator('[data-panel-expanded]')).toHaveCount(0);
+    expect((await phone.locator('.whiteboard-tools').boundingBox()).width).toBeLessThanOrEqual(66);
+    await phone.getByRole('button', { name: 'Show drawing tools', exact: true }).click();
+    await expect(phone.getByRole('button', { name: 'Clear canvas', exact: true })).toBeVisible();
     expect(await daw(desktop).evaluate(el => {
       const panel = el.closest('.draggable-panel'); return [panel.style.width, panel.style.height];
     })).toEqual(sharedSize);
