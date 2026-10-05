@@ -80,6 +80,7 @@ export function AudioPlayer({
   transferProgress,
   onFileChosen,
   initialPlayback,
+  playbackRevision,
   onPlaybackChange,
   title = "Audio",
   theme = "digital",
@@ -105,6 +106,7 @@ export function AudioPlayer({
    */
   onFileChosen?: (file: File) => void;
   initialPlayback?: PanelPlayback;
+  playbackRevision?: string;
   onPlaybackChange?: (playback: PanelPlayback) => void;
   title?: string;
   theme?: AudioTheme;
@@ -150,6 +152,14 @@ export function AudioPlayer({
     dataConnection,
     onRemoteSync: handleRemoteSync,
   });
+
+  useEffect(() => {
+    if (!playbackRevision) return;
+    initialPlaybackRef.current = initialPlayback;
+    if (initialPlayback) playbackRef.current!.set(initialPlayback);
+    // Only an authoritative room restore, not ordinary playhead persistence.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playbackRevision]);
 
   const loadedFileRef = useRef<File | null>(null);
 
@@ -277,8 +287,8 @@ export function AudioPlayer({
   useEffect(() => {
     if (!fileName || !onPlaybackChange) return;
     const timer = setInterval(() => {
-      const audio = audioRef.current;
-      if (audio) onPlaybackChangeRef.current?.({ time: audio.currentTime, playing: !audio.paused, volume });
+      const playback = playbackRef.current!.snapshot(initialPlaybackRef.current);
+      if (playback) onPlaybackChangeRef.current?.({ ...playback, volume });
     }, 1000);
     return () => clearInterval(timer);
   }, [fileName, onPlaybackChange, volume]);

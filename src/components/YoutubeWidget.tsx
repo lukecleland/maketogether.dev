@@ -36,6 +36,7 @@ interface YoutubeWidgetProps {
   /** Reports the loaded video's title so the parent can label the dock chip. */
   onTitleChange?: (title: string) => void;
   initialPlayback?: PanelPlayback;
+  playbackRevision?: string;
   onPlaybackChange?: (playback: PanelPlayback) => void;
   onVideoChange?: (videoId: string) => void;
   title?: string;
@@ -80,6 +81,7 @@ export function YoutubeWidget({
   onMinimize,
   onTitleChange,
   initialPlayback,
+  playbackRevision,
   onPlaybackChange,
   onVideoChange,
   title = "Make Together",
@@ -102,7 +104,7 @@ export function YoutubeWidget({
   const onTitleChangeRef = useRef(onTitleChange);
   onTitleChangeRef.current = onTitleChange;
   const lastReportedTitleRef = useRef<string | null>(null);
-  const playbackStateRef = useRef({ playing: initialPlayback?.playing ?? false });
+  const playbackStateRef = useRef({ time: initialPlayback?.time ?? 0, at: initialPlayback?.at ?? Date.now(), playing: initialPlayback?.playing ?? false });
   const onPlaybackChangeRef = useRef(onPlaybackChange);
   onPlaybackChangeRef.current = onPlaybackChange;
 
@@ -118,16 +120,16 @@ export function YoutubeWidget({
       }
 
       // Only act on terminal playback states; ignore buffering (3), cued (5), etc.
-      if (state !== 1 && state !== 2) return;
+      if (state !== 0 && state !== 1 && state !== 2) return;
 
       // Suppress all state changes fired within the remote-sync window.
       if (Date.now() < syncUntilRef.current) return;
       const time = getCurrentTime();
-      playbackStateRef.current.playing = state === 1;
-      onPlaybackChangeRef.current?.({ time, playing: state === 1 });
+      playbackStateRef.current = { time, at: Date.now(), playing: state === 1 };
+      onPlaybackChangeRef.current?.({ time, playing: state === 1, at: Date.now() });
       const at = Date.now();
       if (state === 1) sendSyncRef.current({ type: "play", id, time, at });
-      if (state === 2) sendSyncRef.current({ type: "pause", id, time, at });
+      if (state === 0 || state === 2) sendSyncRef.current({ type: "pause", id, time, at });
     },
     [id],
   );
@@ -146,17 +148,21 @@ export function YoutubeWidget({
     if (initialVideoId) {
       setInputValue(watchUrl(initialVideoId));
       setHasVideo(true);
-      if (initialPlayback) restorePlayback(initialVideoId, initialPlayback.time, initialPlayback.playing);
+      if (initialPlayback) {
+        playbackStateRef.current = { ...initialPlayback, at: initialPlayback.at ?? Date.now() };
+        restorePlayback(initialVideoId, initialPlayback.time, initialPlayback.playing, initialPlayback.at);
+      }
       else loadVideo(initialVideoId);
     }
-    // Only on mount
+    // Mount or authoritative room restore, not ordinary playhead persistence.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [playbackRevision]);
 
   useEffect(() => {
     if (!hasVideo || !onPlaybackChange) return;
     const timer = setInterval(() => {
-      onPlaybackChangeRef.current?.({ time: getCurrentTime(), playing: playbackStateRef.current.playing });
+      const intent = playbackStateRef.current;
+      onPlaybackChangeRef.current?.({ time: intent.playing ? currentSyncedTime(intent.time, intent.at) : intent.time, playing: intent.playing, at: Date.now() });
     }, 1000);
     return () => clearInterval(timer);
   }, [getCurrentTime, hasVideo, onPlaybackChange]);
@@ -172,16 +178,19 @@ export function YoutubeWidget({
       } else if (msg.type === "play") {
         if (msg.id !== id) return;
         syncUntilRef.current = Date.now() + 500;
+        playbackStateRef.current = { time: msg.time, at: msg.at ?? Date.now(), playing: true };
         seekTo(currentSyncedTime(msg.time, msg.at));
         playVideo();
       } else if (msg.type === "pause") {
         if (msg.id !== id) return;
         syncUntilRef.current = Date.now() + 500;
+        playbackStateRef.current = { time: msg.time, at: msg.at ?? Date.now(), playing: false };
         seekTo(msg.time);
         pauseVideo();
       } else if (msg.type === "seek") {
         if (msg.id !== id) return;
         syncUntilRef.current = Date.now() + 500;
+        playbackStateRef.current = { ...playbackStateRef.current, time: msg.time, at: msg.at ?? Date.now() };
         seekTo(msg.time);
       }
     },

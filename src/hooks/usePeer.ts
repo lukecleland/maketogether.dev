@@ -1,3 +1,4 @@
+import { SharedMessageOrder } from '../utils/sharedMessageOrder';
 import { useState, useEffect, useRef, useCallback } from "react";
 import Peer, { type DataConnection, type MediaConnection } from "peerjs";
 import type { PanelState } from '../types/panels';
@@ -29,6 +30,7 @@ class MeshDataConnection implements RoomDataConnection {
   private listeners = new Set<(data: unknown) => void>();
   private localPeerId = "";
   private roomPeerId = "";
+  private order = new SharedMessageOrder();
   private seenMessages = new Set<string>();
 
   configure(localPeerId: string, roomPeerId: string) {
@@ -43,7 +45,9 @@ class MeshDataConnection implements RoomDataConnection {
   }
 
   get dataChannel() {
-    return [...this.connections.values()].find(connection => connection.open)?.dataChannel;
+    return [...this.connections.values()]
+      .filter(connection => connection.open && connection.dataChannel)
+      .sort((a, b) => (b.dataChannel.bufferedAmount ?? 0) - (a.dataChannel.bufferedAmount ?? 0))[0]?.dataChannel;
   }
 
   on(_event: "data", listener: (data: unknown) => void) {
@@ -66,6 +70,10 @@ class MeshDataConnection implements RoomDataConnection {
       if (oldest) this.seenMessages.delete(oldest);
     }
     return true;
+  }
+
+  acceptState(message: MeshMessage) {
+    return this.order.accept(message, message.__meshSourcePeerId);
   }
 
   relay(message: MeshMessage, exceptPeerId: string) {
@@ -95,7 +103,7 @@ class MeshDataConnection implements RoomDataConnection {
   send(data: unknown) {
     if (typeof data !== "object" || data === null) return;
     const message = {
-      ...data,
+      ...this.order.stamp(data as Record<string, unknown>, this.localPeerId),
       __meshMessageId: crypto.randomUUID(),
       __meshSourcePeerId: this.localPeerId,
     } as MeshMessage;
@@ -122,6 +130,7 @@ interface UsePeerResult {
   remoteStreams: RemotePeerStream[];
   dataConnection: RoomDataConnection | null;
   participantCount: number;
+  connectionRevision: number;
   status: PeerStatus;
   error: string | null;
   mediaStatus: string | null;
@@ -226,6 +235,7 @@ export function usePeer({
   isHost,
   localStream,
 }: UsePeerOptions): UsePeerResult {
+  const [connectionRevision, setConnectionRevision] = useState(0);
   const [remoteStreams, setRemoteStreams] = useState<RemotePeerStream[]>([]);
   const [dataConnection, setDataConnection] = useState<RoomDataConnection | null>(null);
   const [participantCount, setParticipantCount] = useState(1);
@@ -481,6 +491,7 @@ export function usePeer({
         }
 
         mesh.add(connection);
+        setConnectionRevision(revision => revision + 1);
         lastSeenAt = Date.now();
         heartbeat = setInterval(() => {
           // Browsers throttle timers in background tabs. Treat that suspension
@@ -523,7 +534,7 @@ export function usePeer({
         if (isMeshMessage(raw)) {
           if (!mesh.accept(raw.__meshMessageId)) return;
           mesh.relay(raw, connection.peer);
-          if (!raw.__meshTargetPeerId || raw.__meshTargetPeerId === peer.id)
+          if ((!raw.__meshTargetPeerId || raw.__meshTargetPeerId === peer.id) && mesh.acceptState(raw))
             mesh.emit(identifyPeerMessage(raw, raw.__meshSourcePeerId, peer.id));
           return;
         }
@@ -699,5 +710,5 @@ export function usePeer({
     };
   }, [localStream, roomCode, isHost]);
 
-  return { remoteStreams, dataConnection, participantCount, status, error, mediaStatus, retryMedia, replaceVideoTrack };
+  return { remoteStreams, dataConnection, participantCount, connectionRevision, status, error, mediaStatus, retryMedia, replaceVideoTrack };
 }

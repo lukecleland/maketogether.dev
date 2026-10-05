@@ -96,8 +96,10 @@ export function useYouTubePlayer(
   options: UseYouTubePlayerOptions = {},
 ) {
   const playerRef = useRef<YTPlayer | null>(null);
+  const pendingTransportRef = useRef<{ time: number; playing: boolean; at: number } | null>(null);
+  const pendingVolumeRef = useRef<number | null>(null);
   const pendingVideoRef = useRef<string | null>(null);
-  const pendingPlaybackRef = useRef<{ videoId: string; time: number; playing: boolean } | null>(null);
+  const pendingPlaybackRef = useRef<{ videoId: string; time: number; playing: boolean; at?: number } | null>(null);
   // Always read the latest callback without re-creating the player
   const onStateChangeRef = useRef(options.onStateChange);
   onStateChangeRef.current = options.onStateChange;
@@ -134,6 +136,7 @@ export function useYouTubePlayer(
           onReady: ({ target }) => {
             if (cancelled) return;
             playerRef.current = target;
+            if (pendingVolumeRef.current !== null) target.setVolume(pendingVolumeRef.current);
             // Apply any video that was requested before the player was ready
             if (pendingVideoRef.current) {
               target.loadVideoById(pendingVideoRef.current);
@@ -142,10 +145,17 @@ export function useYouTubePlayer(
             if (pendingPlaybackRef.current) {
               const pending = pendingPlaybackRef.current;
               target.loadVideoById(pending.videoId);
-              target.seekTo(pending.time, true);
+              target.seekTo(pending.time + (pending.playing && pending.at !== undefined ? Math.max(0, Date.now() - pending.at) / 1000 : 0), true);
               if (pending.playing) target.playVideo();
               else target.pauseVideo();
               pendingPlaybackRef.current = null;
+            }
+            const transport = pendingTransportRef.current;
+            if (transport) {
+              target.seekTo(transport.time + (transport.playing ? Math.max(0, Date.now() - transport.at) / 1000 : 0), true);
+              if (transport.playing) target.playVideo();
+              else target.pauseVideo();
+              pendingTransportRef.current = null;
             }
           },
           onStateChange: ({ data, target }) => {
@@ -171,6 +181,8 @@ export function useYouTubePlayer(
   }, []);
 
   const loadVideo = useCallback((videoId: string) => {
+    pendingPlaybackRef.current = null;
+    pendingTransportRef.current = null;
     if (playerRef.current) {
       playerRef.current.loadVideoById(videoId);
     } else {
@@ -180,30 +192,33 @@ export function useYouTubePlayer(
   }, []);
 
   const playVideo = useCallback(() => {
-    playerRef.current?.playVideo();
+    if (playerRef.current) playerRef.current.playVideo();
+    else pendingTransportRef.current = { time: pendingTransportRef.current?.time ?? pendingPlaybackRef.current?.time ?? 0, playing: true, at: Date.now() };
   }, []);
   const pauseVideo = useCallback(() => {
-    playerRef.current?.pauseVideo();
+    if (playerRef.current) playerRef.current.pauseVideo();
+    else pendingTransportRef.current = { time: pendingTransportRef.current?.time ?? pendingPlaybackRef.current?.time ?? 0, playing: false, at: Date.now() };
   }, []);
   const seekTo = useCallback((seconds: number) => {
-    playerRef.current?.seekTo(seconds, true);
+    if (playerRef.current) playerRef.current.seekTo(seconds, true);
+    else pendingTransportRef.current = { time: seconds, playing: pendingTransportRef.current?.playing ?? pendingPlaybackRef.current?.playing ?? false, at: Date.now() };
   }, []);
 
   const setVolume = useCallback((volume: number) => {
-    playerRef.current?.setVolume(
-      Math.round(Math.max(0, Math.min(100, volume))),
-    );
+    pendingVolumeRef.current = Math.round(Math.max(0, Math.min(100, volume)));
+    playerRef.current?.setVolume(pendingVolumeRef.current);
   }, []);
 
-  const restorePlayback = useCallback((videoId: string, time: number, playing: boolean) => {
+  const restorePlayback = useCallback((videoId: string, time: number, playing: boolean, at?: number) => {
+    pendingTransportRef.current = null;
     const player = playerRef.current;
     if (!player) {
       pendingVideoRef.current = null;
-      pendingPlaybackRef.current = { videoId, time, playing };
+      pendingPlaybackRef.current = { videoId, time, playing, at: at ?? Date.now() };
       return;
     }
     player.loadVideoById(videoId);
-    player.seekTo(time, true);
+    player.seekTo(time + (playing && at !== undefined ? Math.max(0, Date.now() - at) / 1000 : 0), true);
     if (playing) player.playVideo();
     else player.pauseVideo();
   }, []);

@@ -39,7 +39,7 @@ function participant(id, media, host = false) {
     crypto: { randomUUID: () => 'nonce' }, document: { hidden: false },
     setTimeout: (fn, ms) => { timers.set(++sequence, { fn, at: now + ms }); return sequence; },
     clearTimeout: key => timers.delete(key), setInterval: () => ++sequence, clearInterval() {},
-  }, { react, peerjs: MockPeer, '../utils/participantPanels': load('src/utils/participantPanels.ts') });
+  }, { react, peerjs: MockPeer, '../utils/sharedMessageOrder': load('src/utils/sharedMessageOrder.ts'), '../utils/participantPanels': load('src/utils/participantPanels.ts') });
   const result = usePeer({ roomCode: 'MAKER', isHost: host, localStream: { getTracks: () => media ? [{ kind: 'audio', readyState: 'live' }] : [] } });
   const cleanup = effects[0](); peer.emit('open');
   if (host) { peer.data = new Connection('1-guest', { canSendMedia: true }); peer.emit('connection', peer.data); }

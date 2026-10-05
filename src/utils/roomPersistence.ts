@@ -11,6 +11,8 @@ export interface PersistedPlayback {
   recordingId?: string;
   time: number;
   playing: boolean;
+  /** Timestamp of the shared playhead, retained across transfer and join delays. */
+  at?: number;
   volume?: number;
 }
 
@@ -65,6 +67,8 @@ export interface RoomSnapshot {
   /** Per-peer participant panels, keyed by the stable PeerJS id seen locally. */
   remotePanels?: Record<string, PanelState>;
   drawings: CanvasItem[];
+  /** Drawing coordinate basis; absent in legacy viewport-relative rooms. */
+  drawingViewport?: { width: number; height: number };
   positionTags: PersistedPositionTag[];
   connectors?: PersistedConnector[];
   dockedIds: string[];

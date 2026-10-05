@@ -28,6 +28,8 @@ export interface PanelPlayback {
   recordingId?: string;
   time: number;
   playing: boolean;
+  /** Timestamp of the shared playhead, retained across transfer and join delays. */
+  at?: number;
   volume?: number;
 }
 
@@ -121,6 +123,8 @@ export interface DynamicPanel {
   /** Clip list retained independently of locally available File objects. */
   recordingMetadata?: RecordingMetadata[];
   playback?: PanelPlayback;
+  /** Local restore generation, never broadcast as a control action. */
+  playbackRevision?: string;
   initialUrl?: string;
   browserScroll?: BrowserScroll;
   pdfPage?: number;

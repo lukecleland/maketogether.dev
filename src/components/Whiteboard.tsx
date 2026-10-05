@@ -1,3 +1,4 @@
+import { DRAWING_VIEWPORT } from '../utils/drawingCoordinates';
 import {
   useEffect,
   useRef,
@@ -16,19 +17,12 @@ import { FONT_STACKS, metalFor, type Nib, type TextFont } from "../utils/brush";
  * `innerHeight × devicePixelRatio` (physical pixels) with CSS dimensions set
  * to `innerWidth × innerHeight` (logical pixels). This keeps strokes crisp on
  * Retina/HiDPI screens. On window resize the canvas is re-sized and the
- * background is re-filled (existing art is lost — acceptable trade-off).
+ * existing art is replayed from shared world coordinates.
  *
- * ## Coordinate normalisation
- * Mouse positions are normalised to 0–1 fractions of the viewport before being
- * emitted via `onStroke`. The `drawSegment` function multiplies by the local
- * physical pixel dimensions when rendering, so strokes sent over the wire land
- * at the correct proportional position on the remote peer's screen regardless
- * of their viewport size or DPR.
- *
- * ## Brush width normalisation
- * The raw toolbar pixel size is divided by `Math.min(innerWidth, innerHeight)`
- * before sending. On receipt it is multiplied back out using the receiver's
- * own viewport, keeping stroke weight visually proportional across screen sizes.
+ * ## Shared world coordinates
+ * Drawing fractions use the fixed DRAWING_VIEWPORT basis on every device.
+ * Only the backing buffer uses the local screen size and DPR. Rotating a phone
+ * therefore cannot move, stretch or resize shared art relative to panels.
  *
  * ## Imperative handle
  * `drawStroke` and `clearCanvas` are exposed via `forwardRef` / `useImperativeHandle`
@@ -37,12 +31,12 @@ import { FONT_STACKS, metalFor, type Nib, type TextFont } from "../utils/brush";
  */
 
 export interface WhiteboardStroke {
-  x0: number; // normalised 0–1 fraction of viewport width
-  y0: number; // normalised 0–1 fraction of viewport height
+  x0: number; // fraction of the shared drawing width
+  y0: number; // fraction of the shared drawing height
   x1: number;
   y1: number;
   color: string;
-  width: number; // normalised: fraction of Math.min(viewportW, viewportH)
+  width: number; // fraction of the shared drawing basis minimum
   /** Absent on strokes from a peer running an older build — treat as ballpoint. */
   nib?: Nib;
 }
@@ -62,7 +56,7 @@ export interface WhiteboardText {
   y: number; // normalised 0–1, baseline
   text: string;
   color: string;
-  /** Normalised against Math.min(viewportW, viewportH), like stroke width. */
+  /** Normalised against the shared drawing basis, like stroke width. */
   size: number;
   font: TextFont;
 }
@@ -207,8 +201,8 @@ const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(
       const ctx = canvas?.getContext("2d");
       if (!ctx || !canvas) return;
       const dpr = window.devicePixelRatio || 1;
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
+      const vw = DRAWING_VIEWPORT.width;
+      const vh = DRAWING_VIEWPORT.height;
       const { x: tx, y: ty, scale } = canvasTransformRef.current;
 
       // World-normalised → world pixels → screen pixels → physical pixels
@@ -218,7 +212,7 @@ const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(
       const py1 = (stroke.y1 * vh * scale + ty) * dpr;
 
       const isEraser = stroke.color === "__eraser__";
-      // Width is normalised to viewport — also scale it with the zoom level
+      // Width is normalised to the shared basis — also scale it with the zoom level
       const lw = stroke.width * Math.min(vw, vh) * scale * dpr;
       const strokeNib: Nib = stroke.nib ?? "ballpoint";
 
@@ -338,8 +332,8 @@ const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(
       const ctx = canvas?.getContext("2d");
       if (!ctx || !canvas) return;
       const dpr = window.devicePixelRatio || 1;
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
+      const vw = DRAWING_VIEWPORT.width;
+      const vh = DRAWING_VIEWPORT.height;
       const { x: tx, y: ty, scale } = canvasTransformRef.current;
 
       const px = (item.x * vw * scale + tx) * dpr;
@@ -370,8 +364,8 @@ const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(
       const ctx = canvas?.getContext("2d");
       if (!ctx || !canvas) return;
       const dpr = window.devicePixelRatio || 1;
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
+      const vw = DRAWING_VIEWPORT.width;
+      const vh = DRAWING_VIEWPORT.height;
       const { x: tx, y: ty, scale } = canvasTransformRef.current;
       const x0 = (item.x0 * vw * scale + tx) * dpr;
       const y0 = (item.y0 * vh * scale + ty) * dpr;
@@ -505,8 +499,8 @@ const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(
     const getPosFromClient = (clientX: number, clientY: number) => {
       const { x: tx, y: ty, scale } = canvasTransformRef.current;
       return {
-        x: (clientX - tx) / scale / window.innerWidth,
-        y: (clientY - ty) / scale / window.innerHeight,
+        x: (clientX - tx) / scale / DRAWING_VIEWPORT.width,
+        y: (clientY - ty) / scale / DRAWING_VIEWPORT.height,
       };
     };
 
@@ -526,8 +520,8 @@ const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(
     const textAt = (clientX: number, clientY: number): WhiteboardText | null => {
       const ctx = canvasRef.current?.getContext("2d");
       if (!ctx) return null;
-      const vw = window.innerWidth;
-      const vh = window.innerHeight;
+      const vw = DRAWING_VIEWPORT.width;
+      const vh = DRAWING_VIEWPORT.height;
       const pos = getPosFromClient(clientX, clientY);
       const px = pos.x * vw;
       const py = pos.y * vh;
@@ -578,7 +572,7 @@ const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(
         y: pos.y,
         text: value,
         color,
-        size: textSize / Math.min(window.innerWidth, window.innerHeight),
+        size: textSize / Math.min(DRAWING_VIEWPORT.width, DRAWING_VIEWPORT.height),
         font
       };
       strokesRef.current.push(item);
@@ -598,8 +592,8 @@ const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(
         // Re-open existing text where it actually sits, not where you clicked
         const { x: tx, y: ty, scale } = canvasTransformRef.current;
         const next: Caret = {
-          sx: hit.x * window.innerWidth * scale + tx,
-          sy: hit.y * window.innerHeight * scale + ty,
+          sx: hit.x * DRAWING_VIEWPORT.width * scale + tx,
+          sy: hit.y * DRAWING_VIEWPORT.height * scale + ty,
           value: hit.text,
           id: hit.id
         };
@@ -644,7 +638,7 @@ const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(
         x1: b.x,
         y1: b.y,
         color,
-        width: width / Math.min(window.innerWidth, window.innerHeight)
+        width: width / Math.min(DRAWING_VIEWPORT.width, DRAWING_VIEWPORT.height)
       };
       strokesRef.current.push(item);
       drawShapeItem(item);
@@ -718,8 +712,8 @@ const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(
       if (!m) return;
       const a = getPosFromClient(Math.min(m.x0, m.x1), Math.min(m.y0, m.y1));
       const b = getPosFromClient(Math.max(m.x0, m.x1), Math.max(m.y0, m.y1));
-      const w = (b.x - a.x) * window.innerWidth;
-      const h = (b.y - a.y) * window.innerHeight;
+      const w = (b.x - a.x) * DRAWING_VIEWPORT.width;
+      const h = (b.y - a.y) * DRAWING_VIEWPORT.height;
       // Ignore a stray click that never became a drag
       if (w < 12 || h < 12) return;
       onRegion({ x: a.x, y: a.y, w, h });
@@ -805,8 +799,8 @@ const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(
         const { scale } = canvasTransformRef.current;
         // Judge speed by how fast the hand moves on *screen*, not in world
         // units, so a zoomed-out board doesn't read as a frantic scribble.
-        const dxs = (curr.x - prev.x) * window.innerWidth * scale;
-        const dys = (curr.y - prev.y) * window.innerHeight * scale;
+        const dxs = (curr.x - prev.x) * DRAWING_VIEWPORT.width * scale;
+        const dys = (curr.y - prev.y) * DRAWING_VIEWPORT.height * scale;
         const speed = Math.hypot(dxs, dys) / dt;
         const target = Math.max(0.35, Math.min(1.55, 1.55 - speed * 0.3));
         // Ease towards the target so the line doesn't judder frame to frame
@@ -822,7 +816,7 @@ const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(
         y1: curr.y,
         color: tool === "eraser" ? "__eraser__" : color,
         // Normalise so it looks proportionally the same on the remote screen
-        width: rawPx / Math.min(window.innerWidth, window.innerHeight),
+        width: rawPx / Math.min(DRAWING_VIEWPORT.width, DRAWING_VIEWPORT.height),
         ...(tool === "pen" ? { nib } : {})
       };
       strokesRef.current.push(stroke);
@@ -869,9 +863,9 @@ const Whiteboard = forwardRef<WhiteboardHandle, WhiteboardProps>(
 
         {hoveredText && !editing && (() => {
           const { x: tx, y: ty, scale } = canvasTransform;
-          const size = hoveredText.size * Math.min(window.innerWidth, window.innerHeight);
-          const left = hoveredText.x * window.innerWidth * scale + tx;
-          const top = (hoveredText.y * window.innerHeight - size) * scale + ty;
+          const size = hoveredText.size * Math.min(DRAWING_VIEWPORT.width, DRAWING_VIEWPORT.height);
+          const left = hoveredText.x * DRAWING_VIEWPORT.width * scale + tx;
+          const top = (hoveredText.y * DRAWING_VIEWPORT.height - size) * scale + ty;
           // The exact canvas measurement is only needed for hit-testing. A
           // conservative character-width estimate keeps render ref-free and
           // places the handle just beyond the text's top-right edge.

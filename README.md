@@ -163,10 +163,28 @@ The WebRTC data channel carries typed messages for:
 - Chunked image, audio-file and recording transfers
 - Collaborative code and synchronized recording playback
 
-Panel geometry and canvas coordinates are normalized before transmission so
-participants with different viewport sizes still share the same logical
-workspace. YouTube and audio playback commands include a wall-clock timestamp
-so receivers can compensate for data-channel transit time.
+Panels use absolute canvas-world pixels. Drawing fractions use a fixed
+1920 × 1080 reference on every device, independent of screen size, rotation,
+and pixel density; older room snapshots migrate from their saved viewport.
+Viewport handoffs transmit a world center so phones and desktops see the same
+place. Notes, code, panel geometry and media controls use logical revisions
+with a stable peer tie-breaker so concurrent edits converge without depending
+on device wall clocks. Deleted panels reject delayed edits.
+
+Playback snapshots preserve shared intent and its timestamp while local audio
+is blocked or files load. YouTube queues controls until its iframe is ready.
+New data connections request fresh room state even if another peer remained
+connected; existing media files are retained while the state is restored.
+Media timestamps compensate for transit/transfer delays, but require reasonably
+aligned device clocks and do not provide sample-accurate live audio.
+
+Run `npm test` for synchronization and media regressions. For the full-app
+multi-device test, install WebKit with `npx playwright install webkit`, then run
+`npm run test:browser`. It uses isolated desktop, iPhone and tablet browser
+contexts and controlled data transport to check live edits, drawings, late
+joins, rotation and rejoining. It does not emulate cellular networks or actual
+camera/microphone permissions. Refresh every participant's page after upgrading
+so all clients use the shared coordinate and revision protocol.
 
 ## Local development
 
