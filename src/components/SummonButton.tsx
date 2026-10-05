@@ -31,13 +31,6 @@ import { createPortal } from "react-dom";
 
 interface SummonButtonProps {
   roomCode: string;
-  /**
-   * `bar` is the permanent button in the session's top bar, showing the room
-   * code. `prompt` is the filled one inside the "nobody here yet" card — same
-   * behaviour, more weight, and no code (the card is about the person, not
-   * the number).
-   */
-  variant?: "bar" | "prompt";
 }
 
 const INVITE_TEXT = "Join my Make Together room:";
@@ -73,7 +66,7 @@ function prefersNativeSheet(): boolean {
   );
 }
 
-export function SummonButton({ roomCode, variant = "bar" }: SummonButtonProps) {
+export function SummonButton({ roomCode }: SummonButtonProps) {
   const [modalOpen, setModalOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const modalRef = useRef<HTMLDivElement>(null);
@@ -180,29 +173,15 @@ export function SummonButton({ roomCode, variant = "bar" }: SummonButtonProps) {
     <div className="relative shrink-0">
       <button
         ref={buttonRef}
-        data-summon-variant={variant}
+        data-summon-variant="bar"
         onClick={handleSummon}
-        className={
-          variant === "prompt"
-            ? "flex items-center gap-1.5 bg-brand-600 hover:bg-brand-500 active:bg-brand-700 border border-brand-400 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors"
-            : "flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 border border-zinc-700 text-zinc-300 text-xs font-mono px-2 sm:px-3 py-1.5 rounded-lg transition-colors"
-        }
-        // Both variants can be on screen at once, so they must not read
-        // identically to a screen reader.
-        title={
-          variant === "prompt"
-            ? `Summon a friend to room ${roomCode}`
-            : `Summon someone to room ${roomCode}`
-        }
-        aria-label={
-          variant === "prompt"
-            ? `Summon a friend to room ${roomCode}`
-            : `Summon someone to room ${roomCode}`
-        }
+        className="flex items-center gap-1.5 bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 border border-zinc-700 text-zinc-300 text-xs font-mono px-2 sm:px-3 py-1.5 rounded-lg transition-colors"
+        title={`Summon someone to room ${roomCode}`}
+        aria-label={`Summon someone to room ${roomCode}`}
         aria-haspopup={prefersNativeSheet() ? undefined : "dialog"}
         aria-expanded={prefersNativeSheet() ? undefined : modalOpen}
       >
-        {variant === "bar" && <span className="hidden sm:inline">{roomCode}</span>}
+        <span className="hidden sm:inline">{roomCode}</span>
         {/* Outward arrow — the same gesture every platform uses for "send this
             somewhere else", so it reads before the label does. */}
         <svg
@@ -219,7 +198,7 @@ export function SummonButton({ roomCode, variant = "bar" }: SummonButtonProps) {
             d="M12 4v12M12 4L8 8m4-4l4 4M5 14v4a2 2 0 002 2h10a2 2 0 002-2v-4"
           />
         </svg>
-        <span className={variant === "prompt" ? undefined : "hidden sm:inline"}>
+        <span className="hidden sm:inline">
           Summon
         </span>
       </button>

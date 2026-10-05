@@ -248,7 +248,6 @@ export function Session({ roomCode, isHost }: SessionProps) {
 	const [bgDragOver, setBgDragOver] = useState(false);
 	// The "nobody here yet" nudge. Dismissing it is final for the session —
 	// being told twice how to invite someone is worse than not being told.
-	const [summonPromptDismissed, setSummonPromptDismissed] = useState(false);
 	const [recorderStatuses, setRecorderStatuses] = useState<Record<string, RecordingStatus>>({});
 	const [widgetMenuOpen, setWidgetMenuOpen] = useState(false);
 	const widgetMenuRef = useRef<HTMLDivElement>(null);
@@ -2688,37 +2687,6 @@ export function Session({ roomCode, isHost }: SessionProps) {
 				</div>
 			</div>
 
-			{/* Nobody here yet — the moment you'd actually want to invite
-			    someone, rather than hoping they spot the button. `waiting` means
-			    the room is live and empty; it clears itself the instant anyone
-			    joins.
-
-			    Sits above the dock rather than under the top bar: the tool
-			    island occupies that slot at the same offset, and at 375px it
-			    covered this card completely. */}
-			{status === 'waiting' && !summonPromptDismissed && (
-				<div
-					className="summon-prompt absolute left-1/2 -translate-x-1/2 z-50 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 bg-zinc-900/95 backdrop-blur border border-zinc-700 rounded-xl pl-3 sm:pl-4 pr-2 py-2.5 shadow-xl max-w-[calc(100vw-2rem)]"
-					style={{ bottom: 'calc(1rem + env(safe-area-inset-bottom) + 4.75rem)' }}>
-					{/* Stacks on a phone: side by side, the sentence squeezes to
-					    four words a line and the card stops being readable. */}
-					<p className="text-xs sm:text-sm text-zinc-300 whitespace-nowrap">
-						Nobody here yet — summon a friend?
-					</p>
-					<div className="flex items-center gap-2 self-end sm:self-auto">
-						<SummonButton roomCode={roomCode} variant="prompt" />
-						<button
-							onClick={() => setSummonPromptDismissed(true)}
-							className="text-zinc-500 hover:text-zinc-300 transition-colors shrink-0"
-							title="Dismiss"
-							aria-label="Dismiss">
-							<svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-								<path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-							</svg>
-						</button>
-					</div>
-				</div>
-			)}
 
 			{bundleNotice && (
 				<div role={bundleNotice.kind === 'error' ? 'alert' : 'status'} className={`fixed bottom-24 left-1/2 z-[1002] w-[min(32rem,calc(100vw-1.5rem))] -translate-x-1/2 rounded-xl border px-3 py-2 text-center text-xs shadow-xl backdrop-blur ${bundleNotice.kind === 'error' ? 'border-red-700 bg-red-950/95 text-red-200' : 'border-emerald-700 bg-emerald-950/95 text-emerald-200'}`}>
