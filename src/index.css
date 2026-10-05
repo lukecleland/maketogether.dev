@@ -422,13 +422,25 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 
 .dock-actions-toggle { display: none; }
 @media (max-width: 639px), (any-pointer: coarse) and (max-width: 1023px) {
-  :root { --session-header-height: 36px; }
-  .session-header { flex-wrap: nowrap; gap: 4px; padding-bottom: 2px !important; }
-  .session-header > div { width: auto; min-height: 34px; gap: 4px; }
+  :root { --session-header-height: 32px; }
+  .session-header {
+    flex-wrap: nowrap; gap: 4px; padding-bottom: 1px !important;
+    background: #09090be6; border-bottom-color: #ffffff0d;
+  }
+  .session-header > div { width: auto; min-height: 30px; gap: 4px; }
+  .session-header > div:first-child img { width: 16px; height: 16px; }
+  .session-header button:not(.widget-menu button) { border-radius: 6px; }
+  .session-header button > svg { width: 14px; height: 14px; }
+  .session-header [aria-label="Add widget"], .session-header [data-summon-variant="bar"] {
+    background: #ffffff08; border-color: #ffffff14;
+  }
+  .session-header [aria-label="Add widget"]:active, .session-header [data-summon-variant="bar"]:active {
+    background: #ffffff20;
+  }
   .session-header .brand-wordmark, .session-header [aria-label^="Version "],
   .session-header .room-bundle-actions, .session-header [data-summon-variant="bar"] > span { display: none; }
   .session-header .session-connection-status {
-    width: 8px; height: 8px; max-width: 8px; padding: 0; overflow: hidden;
+    width: 6px; height: 6px; max-width: 6px; padding: 0; overflow: hidden;
     font-size: 0; background: currentColor;
   }
   .session-header button { min-width: 28px; min-height: 28px; height: 28px; padding: 2px 4px; font-size: 11px; }
