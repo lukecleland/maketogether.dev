@@ -221,6 +221,7 @@ export function WhiteboardToolbar({
   onClear
 }: WhiteboardToolbarProps) {
   const [panelOpen, setPanelOpen] = useState(false);
+  const [mobileCollapsed, setMobileCollapsed] = useState(true);
   const panelRef = useRef<HTMLDivElement>(null);
   const islandRef = useRef<HTMLDivElement>(null);
 
@@ -237,6 +238,7 @@ export function WhiteboardToolbar({
   }, [panelOpen]);
 
   const selectTool = (t: Tool) => {
+    setMobileCollapsed(true);
     // The region tool has no options — every section of the panel (colour,
     // size) belongs to the drawing tools, so opening it here would show
     // controls that affect nothing.
@@ -307,9 +309,20 @@ export function WhiteboardToolbar({
       <div
         data-canvas-chrome
         ref={islandRef}
+        data-mobile-collapsed={mobileCollapsed}
         style={{ position: "fixed", zIndex: 999, top: TOP_OFFSET }}
         className="whiteboard-tools left-1/2 -translate-x-1/2 flex items-center gap-1 bg-zinc-900/95 backdrop-blur border border-zinc-700 rounded-2xl p-1.5 shadow-xl select-none lg:left-3 lg:translate-x-0 lg:flex-col"
       >
+        <button
+          className="mobile-tools-toggle text-zinc-300"
+          aria-label={mobileCollapsed ? "Show drawing tools" : "Hide drawing tools"}
+          aria-expanded={!mobileCollapsed}
+          onClick={() => { setMobileCollapsed(value => !value); setPanelOpen(false); }}
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+            {mobileCollapsed ? <path strokeLinecap="round" d="M5 6h14M5 12h14M5 18h14" /> : <path strokeLinecap="round" d="m6 6 12 12M18 6 6 18" />}
+          </svg>
+        </button>
         {toolButton(
           "pointer",
           "Pointer",
