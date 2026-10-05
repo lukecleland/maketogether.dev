@@ -232,7 +232,8 @@ export function DawWidget({
   );
   const trackHeaderWidth = viewportWidth < 600 ? 176 : 230;
   const fitWidth = Math.max(100, viewportWidth - trackHeaderWidth);
-  const timelineWidth = fitWidth * (timelineSeconds / 30) * 2 ** (zoom / 15);
+  // Zero zoom fits the complete timeline, including long imported tracks.
+  const timelineWidth = fitWidth * 2 ** (zoom / 15);
   const pixelsPerSecond = timelineWidth / timelineSeconds;
   const rulerStep =
     [1, 2, 5, 10, 15, 30, 60, 120, 300, 600].find(
@@ -2055,7 +2056,7 @@ export function DawWidget({
                 <div
                   ref={rulerRef}
                   data-time-ruler
-                  className="relative touch-none cursor-ew-resize select-none"
+                  className="relative overflow-hidden touch-none cursor-ew-resize select-none"
                   style={{ width: timelineWidth }}
                   {...scrubHandlers}
                 >

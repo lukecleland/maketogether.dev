@@ -580,3 +580,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .canvas-system-controls button { width: 26px; min-width: 26px; height: 26px; padding: 5px; border-radius: 5px; }
   .canvas-system-controls svg { width: 14px; height: 14px; }
 }
+
+@media (max-width: 639px), (any-pointer: coarse) and (max-width: 1023px) {
+  .landscape-expand[data-expand-kind="DAW"] {
+    display: flex; align-items: center; justify-content: center;
+    width: 26px; height: 26px; min-height: 26px; padding: 5px; border-radius: 5px;
+  }
+}
