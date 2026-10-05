@@ -252,6 +252,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 	// being told twice how to invite someone is worse than not being told.
 	const [recorderStatuses, setRecorderStatuses] = useState<Record<string, RecordingStatus>>({});
 	const [widgetMenuOpen, setWidgetMenuOpen] = useState(false);
+	const [mobileToolsTarget, setMobileToolsTarget] = useState<HTMLDivElement | null>(null);
 	const widgetMenuRef = useRef<HTMLDivElement>(null);
 	const imagePdfInputRef = useRef<HTMLInputElement>(null);
 	const roomBundleInputRef = useRef<HTMLInputElement>(null);
@@ -1625,7 +1626,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 		const { x: fromX, y: fromY, scale: fromScale } = canvasStateRef.current;
 		if ((vw < 640 || (vh < 500 && window.matchMedia('(pointer: coarse)').matches)) && !positionTag) {
 			if (jumpAnimRef.current !== null) cancelAnimationFrame(jumpAnimRef.current);
-			const top = (document.querySelector('.whiteboard-tools')?.getBoundingClientRect().bottom ?? 152) + 12;
+			const top = (document.querySelector('.whiteboard-tools')?.getBoundingClientRect().bottom ?? document.querySelector('.session-header')?.getBoundingClientRect().bottom ?? 48) + 12;
 			setCanvas(framePanel(target, { width: vw, height: vh }, top, 48));
 			return;
 		}
@@ -1905,7 +1906,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 		if (!remoteId) {
 			if (window.innerWidth < 640 || (window.innerHeight < 500 && window.matchMedia('(pointer: coarse)').matches)) {
 				if (jumpAnimRef.current !== null) cancelAnimationFrame(jumpAnimRef.current);
-				const top = (document.querySelector('.whiteboard-tools')?.getBoundingClientRect().bottom ?? 152) + 12;
+				const top = (document.querySelector('.whiteboard-tools')?.getBoundingClientRect().bottom ?? document.querySelector('.session-header')?.getBoundingClientRect().bottom ?? 48) + 12;
 				setCanvas(framePanel(state, { width: window.innerWidth, height: window.innerHeight }, top, 48));
 			}
 			if (type === 'youtube') {
@@ -2335,6 +2336,37 @@ export function Session({ roomCode, isHost }: SessionProps) {
 	const anyRecorderActive = recorderStatusList.some(item => item.recording);
 	const recorderErrors = [...new Set(recorderStatusList.flatMap(item => item.errors))];
 
+	const zoomControls = (
+				<div className="flex items-center gap-0.5">
+					<button
+						onClick={() => setCanvas(c => ({ ...c, scale: Math.max(0.25, c.scale / 1.1) }))}
+						className="w-7 h-7 flex items-center justify-center rounded text-zinc-400 hover:text-white hover:bg-zinc-700 transition-colors text-base leading-none"
+						title="Zoom out">
+						−
+					</button>
+					<button
+						onClick={() => setCanvas({ x: 0, y: 0, scale: 1 })}
+						className="px-1 sm:px-1.5 tabular-nums text-xs text-zinc-400 hover:text-white transition-colors min-w-[2.75rem] sm:min-w-[3.25rem] text-center rounded hover:bg-zinc-700 py-1"
+						title="Reset view (100%)">
+						{Math.round(canvas.scale * 100)}%
+					</button>
+					<button
+						onClick={() => setCanvas(c => ({ ...c, scale: Math.min(4, c.scale * 1.1) }))}
+						className="w-7 h-7 flex items-center justify-center rounded text-zinc-400 hover:text-white hover:bg-zinc-700 transition-colors text-base leading-none"
+						title="Zoom in">
+						+
+					</button>
+					<button
+						onClick={() => setLaserEnabled(enabled => !enabled)}
+						className={`ml-1 flex h-7 items-center gap-1 rounded border px-1.5 text-xs transition-colors ${laserEnabled ? 'border-rose-400 bg-rose-500/20 text-rose-300' : 'border-zinc-700 text-zinc-400 hover:bg-zinc-700 hover:text-white'}`}
+						title={laserEnabled ? 'Turn off laser pointer (L)' : 'Turn on laser pointer (L)'}
+						aria-pressed={laserEnabled}>
+						<span className={`h-2 w-2 rounded-full ${laserEnabled ? 'animate-pulse bg-rose-400 shadow-[0_0_8px_#fb7185]' : 'bg-zinc-500'}`} />
+						<span className="hidden lg:inline">Laser</span>
+					</button>
+				</div>
+	);
+
 	return (
 		<div
 			className="session-screen relative w-full h-full overflow-hidden select-none"
@@ -2457,35 +2489,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 				</div>
 
 				<div className="ml-auto flex w-fit shrink-0 items-center justify-end gap-1 sm:gap-2">
-				{/* Zoom controls */}
-				<div className="flex items-center gap-0.5">
-					<button
-						onClick={() => setCanvas(c => ({ ...c, scale: Math.max(0.25, c.scale / 1.1) }))}
-						className="w-7 h-7 flex items-center justify-center rounded text-zinc-400 hover:text-white hover:bg-zinc-700 transition-colors text-base leading-none"
-						title="Zoom out">
-						−
-					</button>
-					<button
-						onClick={() => setCanvas({ x: 0, y: 0, scale: 1 })}
-						className="px-1 sm:px-1.5 tabular-nums text-xs text-zinc-400 hover:text-white transition-colors min-w-[2.75rem] sm:min-w-[3.25rem] text-center rounded hover:bg-zinc-700 py-1"
-						title="Reset view (100%)">
-						{Math.round(canvas.scale * 100)}%
-					</button>
-					<button
-						onClick={() => setCanvas(c => ({ ...c, scale: Math.min(4, c.scale * 1.1) }))}
-						className="w-7 h-7 flex items-center justify-center rounded text-zinc-400 hover:text-white hover:bg-zinc-700 transition-colors text-base leading-none"
-						title="Zoom in">
-						+
-					</button>
-					<button
-						onClick={() => setLaserEnabled(enabled => !enabled)}
-						className={`ml-1 flex h-7 items-center gap-1 rounded border px-1.5 text-xs transition-colors ${laserEnabled ? 'border-rose-400 bg-rose-500/20 text-rose-300' : 'border-zinc-700 text-zinc-400 hover:bg-zinc-700 hover:text-white'}`}
-						title={laserEnabled ? 'Turn off laser pointer (L)' : 'Turn on laser pointer (L)'}
-						aria-pressed={laserEnabled}>
-						<span className={`h-2 w-2 rounded-full ${laserEnabled ? 'animate-pulse bg-rose-400 shadow-[0_0_8px_#fb7185]' : 'bg-zinc-500'}`} />
-						<span className="hidden lg:inline">Laser</span>
-					</button>
-				</div>
+				<div className="header-zoom-controls">{zoomControls}</div>
 
 				{/* Add media buttons (desktop rail) */}
 				<div className="fixed right-3 z-[999] hidden max-h-[calc(100vh-5rem)] w-32 shrink-0 flex-col items-stretch gap-1.5 overflow-y-auto lg:flex" style={{ top: 'calc(3rem + env(safe-area-inset-top) + 0.75rem)' }}>
@@ -2575,8 +2579,8 @@ export function Session({ roomCode, isHost }: SessionProps) {
 					<button
 						onClick={() => setWidgetMenuOpen(open => !open)}
 						className="w-8 h-8 flex items-center justify-center bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 border border-zinc-700 text-zinc-300 rounded-lg transition-colors"
-						title="Add widget"
-						aria-label="Add widget"
+						title="Open menu"
+						aria-label="Open menu"
 						aria-haspopup="menu"
 						aria-expanded={widgetMenuOpen}>
 						<svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24">
@@ -2585,6 +2589,8 @@ export function Session({ roomCode, isHost }: SessionProps) {
 					</button>
 					{widgetMenuOpen && (
 						<div className="widget-menu absolute right-0 mt-2 w-48 overflow-y-auto bg-zinc-900/95 backdrop-blur border border-zinc-700 rounded-xl p-1.5 shadow-xl z-50">
+                            <div className="mobile-menu-tools" ref={setMobileToolsTarget} />
+                            <div className="mobile-menu-zoom">{zoomControls}</div>
                             <button onClick={() => { void exportRoomBundle(); setWidgetMenuOpen(false); }} className="mobile-room-action sm:hidden w-full rounded-lg px-2.5 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-800">Export room bundle</button>
                             <button onClick={() => { roomBundleInputRef.current?.click(); setWidgetMenuOpen(false); }} className="mobile-room-action sm:hidden w-full rounded-lg px-2.5 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-800">Import room bundle</button>
 							<button onClick={() => { spawnPanel('recorder', window.innerWidth / 2, window.innerHeight / 2); setWidgetMenuOpen(false); }} className="w-full rounded-lg px-2.5 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-800">Record canvas</button>
@@ -2776,6 +2782,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 
 			{/* Whiteboard toolbar */}
 			<WhiteboardToolbar
+				mobileMenuTarget={mobileToolsTarget}
 				tool={wbTool}
 				color={activeColor}
 				width={wbWidth}

@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { FONT_STACKS, METALS, metalFor, TEXT_SIZES, type Nib, type TextFont } from "../utils/brush";
 import type { ShapeKind } from "./Whiteboard";
 
 /**
- * WhiteboardToolbar — a floating tool island with a contextual properties panel.
+ * WhiteboardToolbar — desktop tool island, embedded in the top menu on mobile.
  *
  * ## Structure
  * Two pieces instead of one strip:
@@ -24,17 +25,24 @@ import type { ShapeKind } from "./Whiteboard";
  * island slot each, and their options cost nothing until selected.
  *
  * ## Placement
- * Fixed rather than draggable. The old bar could be moved but was reset on every
- * reload, and being able to lose your toolbar behind a panel is not a feature.
- * The responsive placement keeps the panel below the island on narrow screens
- * and beside the rail where desktop space allows it.
+ * Desktop tools stay fixed beside their properties panel. On mobile, a portal
+ * places both inside the top menu; closing it leaves the canvas unobstructed.
  *
  * Tool selection and contextual styling are controlled by Session.tsx.
  */
 
 type Tool = "pointer" | "pen" | "eraser" | "text" | "region" | "shape" | "connector";
 
+const mobileQuery = "(max-width: 639px), (any-pointer: coarse) and (max-width: 1023px)";
+const subscribeMobile = (onChange: () => void) => {
+  const query = window.matchMedia(mobileQuery);
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+};
+const isMobile = () => window.matchMedia(mobileQuery).matches;
+
 interface WhiteboardToolbarProps {
+  mobileMenuTarget: HTMLDivElement | null;
   tool: Tool;
   color: string;
   width: number;
@@ -204,6 +212,7 @@ const TOP_OFFSET = "calc(var(--session-header-height, 3rem) + env(safe-area-inse
 const PANEL_OFFSET = "calc(var(--session-header-height, 3rem) + env(safe-area-inset-top) + 3.5rem)";
 
 export function WhiteboardToolbar({
+  mobileMenuTarget,
   tool,
   color,
   width,
@@ -221,7 +230,7 @@ export function WhiteboardToolbar({
   onClear
 }: WhiteboardToolbarProps) {
   const [panelOpen, setPanelOpen] = useState(false);
-  const [mobileCollapsed, setMobileCollapsed] = useState(true);
+  const mobile = useSyncExternalStore(subscribeMobile, isMobile, () => false);
   const panelRef = useRef<HTMLDivElement>(null);
   const islandRef = useRef<HTMLDivElement>(null);
 
@@ -238,7 +247,6 @@ export function WhiteboardToolbar({
   }, [panelOpen]);
 
   const selectTool = (t: Tool) => {
-    setMobileCollapsed(true);
     // The region tool has no options — every section of the panel (colour,
     // size) belongs to the drawing tools, so opening it here would show
     // controls that affect nothing.
@@ -303,26 +311,15 @@ export function WhiteboardToolbar({
     </button>
   );
 
-  return (
+  const controls = (
     <>
       {/* ── Island ─────────────────────────────────────────────────────── */}
       <div
         data-canvas-chrome
         ref={islandRef}
-        data-mobile-collapsed={mobileCollapsed}
         style={{ position: "fixed", zIndex: 999, top: TOP_OFFSET }}
         className="whiteboard-tools left-1/2 -translate-x-1/2 flex items-center gap-1 bg-zinc-900/95 backdrop-blur border border-zinc-700 rounded-2xl p-1.5 shadow-xl select-none lg:left-3 lg:translate-x-0 lg:flex-col"
       >
-        <button
-          className="mobile-tools-toggle text-zinc-300"
-          aria-label={mobileCollapsed ? "Show drawing tools" : "Hide drawing tools"}
-          aria-expanded={!mobileCollapsed}
-          onClick={() => { setMobileCollapsed(value => !value); setPanelOpen(false); }}
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-            {mobileCollapsed ? <path strokeLinecap="round" d="M5 6h14M5 12h14M5 18h14" /> : <path strokeLinecap="round" d="m6 6 12 12M18 6 6 18" />}
-          </svg>
-        </button>
         {toolButton(
           "pointer",
           "Pointer",
@@ -556,4 +553,6 @@ export function WhiteboardToolbar({
       )}
     </>
   );
+  if (mobile) return mobileMenuTarget ? createPortal(controls, mobileMenuTarget) : null;
+  return controls;
 }

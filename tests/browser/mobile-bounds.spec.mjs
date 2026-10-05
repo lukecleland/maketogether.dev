@@ -13,7 +13,7 @@ test('mobile controls remain within the visible viewport in portrait, landscape 
   try {
     await page.goto('/');
     await page.getByRole('button', { name: 'Start Session', exact: true }).click();
-    await page.getByRole('button', { name: 'Add widget', exact: true }).click();
+    await page.getByRole('button', { name: 'Open menu', exact: true }).click();
     await page.locator('.widget-menu').getByRole('button', { name: 'DAW', exact: true }).click();
 
     async function within(selector, bounds) {
@@ -25,13 +25,19 @@ test('mobile controls remain within the visible viewport in portrait, landscape 
     for (const viewport of [{ width: 320, height: 568 }, { width: 568, height: 320 }, { width: 844, height: 390 }]) {
       await page.setViewportSize(viewport);
       const bounds = { ...viewport, left: 0, top: 0 };
-      for (const selector of ['.session-header', '.session-header button:visible', '.whiteboard-tools', '[data-dock]', '.canvas-system-controls']) await within(selector, bounds);
-      await page.getByRole('button', { name: 'Show drawing tools' }).click();
-      await within('.whiteboard-tools', bounds);
-      await page.getByRole('button', { name: 'Hide drawing tools' }).click();
-      await page.getByRole('button', { name: 'Add widget', exact: true }).click();
+      for (const selector of ['.session-header', '.session-header button:visible', '.brand-wordmark', '[data-dock]', '.canvas-system-controls']) await within(selector, bounds);
+      await expect(page.locator('.whiteboard-tools')).toHaveCount(0);
+      await page.getByRole('button', { name: 'Open menu', exact: true }).click();
       await within('.widget-menu', bounds);
-      await page.getByRole('button', { name: 'Add widget', exact: true }).click();
+      await within('.widget-menu .whiteboard-tools', bounds);
+      await page.getByRole('button', { name: 'Pen', exact: true }).click();
+      await expect(page.getByRole('button', { name: 'Pen', exact: true })).toHaveAttribute('aria-pressed', 'true');
+      await page.getByRole('button', { name: 'Colour #f87171', exact: true }).click();
+      await expect(page.getByRole('button', { name: 'Colour #f87171', exact: true })).toHaveAttribute('aria-pressed', 'true');
+      await page.getByRole('button', { name: 'Pointer', exact: true }).click();
+      await expect(page.getByRole('button', { name: 'Pointer', exact: true })).toHaveAttribute('aria-pressed', 'true');
+      await page.screenshot({ path: '/private/tmp/maketogether-branded-menu-' + viewport.width + '.png' });
+      await page.getByRole('button', { name: 'Open menu', exact: true }).click();
     }
     // WebKit automation has no software keyboard: emulate its visual viewport events,
     // keeping the layout viewport unchanged, including Safari's focus-induced pan.
@@ -44,10 +50,10 @@ test('mobile controls remain within the visible viewport in portrait, landscape 
       window.visualViewport.dispatchEvent(new Event('resize'));
       window.visualViewport.dispatchEvent(new Event('scroll'));
     }, bounds);
-    for (const selector of ['.session-header', '.whiteboard-tools', '[data-dock]', '.canvas-system-controls']) await within(selector, bounds);
-    await page.getByRole('button', { name: 'Add widget', exact: true }).click();
+    for (const selector of ['.session-header', '[data-dock]', '.canvas-system-controls']) await within(selector, bounds);
+    await page.getByRole('button', { name: 'Open menu', exact: true }).click();
     await within('.widget-menu', bounds);
-    await page.getByRole('button', { name: 'Add widget', exact: true }).click();
+    await page.getByRole('button', { name: 'Open menu', exact: true }).click();
     await page.getByRole('button', { name: 'Go to Make Music Together', exact: true }).click();
     await page.getByRole('button', { name: 'Expand DAW', exact: true }).click();
     await within('[data-panel-expanded]', bounds);
