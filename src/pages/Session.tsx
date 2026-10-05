@@ -1,3 +1,4 @@
+import { framePanel, transformGesture } from '../utils/canvasViewport';
 import { CanvasSystemControls } from '../components/CanvasSystemControls';
 import { PanelOverviewContext } from '../components/PanelOverviewContext';
 import { layoutOverview } from '../utils/panelOverview';
@@ -1614,6 +1615,12 @@ export function Session({ roomCode, isHost }: SessionProps) {
 				: Math.max(0.25, Math.min(4, fitScale, idealScale));
 
 		const { x: fromX, y: fromY, scale: fromScale } = canvasStateRef.current;
+		if ((vw < 640 || (vh < 500 && window.matchMedia('(pointer: coarse)').matches)) && !positionTag) {
+			if (jumpAnimRef.current !== null) cancelAnimationFrame(jumpAnimRef.current);
+			const top = (document.querySelector('.whiteboard-tools')?.getBoundingClientRect().bottom ?? 152) + 12;
+			setCanvas(framePanel(target, { width: vw, height: vh }, top, 100));
+			return;
+		}
 		const destX = vw / 2 - (target.x + target.width / 2) * toScale;
 		const destY = vh / 2 - (target.y + target.height / 2) * toScale;
 		const dx = destX - fromX;
@@ -1892,6 +1899,11 @@ export function Session({ roomCode, isHost }: SessionProps) {
 
 		// Only sync outward for locally-initiated spawns
 		if (!remoteId) {
+			if (window.innerWidth < 640 || (window.innerHeight < 500 && window.matchMedia('(pointer: coarse)').matches)) {
+				if (jumpAnimRef.current !== null) cancelAnimationFrame(jumpAnimRef.current);
+				const top = (document.querySelector('.whiteboard-tools')?.getBoundingClientRect().bottom ?? 152) + 12;
+				setCanvas(framePanel(state, { width: window.innerWidth, height: window.innerHeight }, top, 100));
+			}
 			if (type === 'youtube') {
 				sendSync({ type: 'spawn-youtube', id, videoId: extra?.initialVideoId, state: normalisePanel(state) });
 			} else if (type === 'whiteboard') {
@@ -2141,9 +2153,16 @@ export function Session({ roomCode, isHost }: SessionProps) {
 		const el = containerRef.current;
 		if (!el) return;
 
+		let panTouch: { id: number; x: number; y: number } | null = null;
 		const onTouchStart = (e: TouchEvent) => {
 			if (overviewOpenRef.current) return;
-			if (e.touches.length < 2) return;
+			if (e.touches.length === 1 && wbTool === 'pointer' && e.target instanceof HTMLCanvasElement) {
+				const touch = e.touches[0];
+				panTouch = { id: touch.identifier, x: touch.clientX, y: touch.clientY };
+				return;
+			}
+			panTouch = null;
+			if (e.touches.length < 2 || (e.target as Element)?.closest('[data-canvas-chrome], .no-drag, input, textarea, select, button')) return;
 			const t0 = e.touches[0];
 			const t1 = e.touches[1];
 			gestureRef.current = {
@@ -2157,6 +2176,15 @@ export function Session({ roomCode, isHost }: SessionProps) {
 
 		const onTouchMove = (e: TouchEvent) => {
 			if (overviewOpenRef.current) return;
+			if (e.touches.length === 1 && panTouch) {
+				const touch = e.touches[0];
+				if (touch.identifier !== panTouch.id) return;
+				e.preventDefault();
+				const dx = touch.clientX - panTouch.x, dy = touch.clientY - panTouch.y;
+				setCanvas(previous => ({ ...previous, x: previous.x + dx, y: previous.y + dy }));
+				panTouch = { id: touch.identifier, x: touch.clientX, y: touch.clientY };
+				return;
+			}
 			if (e.touches.length < 2 || !gestureRef.current) return;
 			e.preventDefault();
 			const t0 = e.touches[0];
@@ -2168,33 +2196,27 @@ export function Session({ roomCode, isHost }: SessionProps) {
 			};
 			const { lastDist, lastMid } = gestureRef.current;
 			const factor = lastDist > 0 ? dist / lastDist : 1;
-			setCanvas(prev => {
-				const s = Math.min(4, Math.max(0.25, prev.scale * factor));
-				// Zoom toward the midpoint between the two fingers, then pan
-				const zoomedX = mid.x - ((mid.x - prev.x) / prev.scale) * s;
-				const zoomedY = mid.y - ((mid.y - prev.y) / prev.scale) * s;
-				return {
-					x: zoomedX + (mid.x - lastMid.x),
-					y: zoomedY + (mid.y - lastMid.y),
-					scale: s
-				};
-			});
+			setCanvas(prev => transformGesture(prev, lastMid, mid, factor));
 			gestureRef.current = { lastDist: dist, lastMid: mid };
 		};
 
 		const onTouchEnd = (e: TouchEvent) => {
+			panTouch = null;
 			if (e.touches.length < 2) gestureRef.current = null;
 		};
 
 		el.addEventListener('touchstart', onTouchStart, { passive: true });
 		el.addEventListener('touchmove', onTouchMove, { passive: false });
 		el.addEventListener('touchend', onTouchEnd, { passive: true });
+		el.addEventListener('touchcancel', onTouchEnd, { passive: true });
 		return () => {
 			el.removeEventListener('touchstart', onTouchStart);
 			el.removeEventListener('touchmove', onTouchMove);
 			el.removeEventListener('touchend', onTouchEnd);
+			el.removeEventListener('touchcancel', onTouchEnd);
+			gestureRef.current = null;
 		};
-	}, []);
+	}, [wbTool]);
 
 	// Space key → pan mode (shows grab-cursor overlay that intercepts all clicks)
 	useEffect(() => {
@@ -2323,7 +2345,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 
 	return (
 		<div
-			className="relative w-screen h-screen overflow-hidden select-none"
+			className="session-screen relative w-full h-full overflow-hidden select-none"
 			ref={containerRef}
 			style={{
 				backgroundColor: '#111',
@@ -2412,7 +2434,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 			{/* Top bar — fixed overlay, not part of draggable canvas */}
 			<div
 				data-canvas-chrome
-				className="absolute top-0 left-0 right-0 z-[1000] flex items-center justify-between px-2 sm:px-4 bg-zinc-950/90 backdrop-blur-sm border-b border-zinc-800/60"
+				className="session-header absolute top-0 left-0 right-0 z-[1000] flex items-center justify-between px-2 sm:px-4 bg-zinc-950/90 backdrop-blur-sm border-b border-zinc-800/60"
 				style={{
 					paddingTop: 'env(safe-area-inset-top)',
 					paddingBottom: '0.5rem'
@@ -2475,7 +2497,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 				<div className="fixed right-3 z-[999] hidden max-h-[calc(100vh-5rem)] w-32 shrink-0 flex-col items-stretch gap-1.5 overflow-y-auto lg:flex" style={{ top: 'calc(3rem + env(safe-area-inset-top) + 0.75rem)' }}>
 					<button
 						onClick={() => void screenShare.toggle()}
-						disabled={screenShare.busy || !localStream}
+						disabled={!screenShare.supported || screenShare.busy || !localStream}
 						aria-pressed={screenShare.sharing}
 						title={screenShare.sharing ? 'Stop sharing your screen' : 'Share your screen with participants'}
 						className="grid w-full grid-cols-[1.25rem_1fr] items-center gap-1.5 text-left [&>:first-child]:justify-self-center bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-violet-300 text-xs font-medium px-3 py-2 rounded-lg transition-colors disabled:opacity-50">
@@ -2568,12 +2590,15 @@ export function Session({ roomCode, isHost }: SessionProps) {
 						</svg>
 					</button>
 					{widgetMenuOpen && (
-						<div className="absolute right-0 mt-2 w-40 bg-zinc-900/95 backdrop-blur border border-zinc-700 rounded-xl p-1.5 shadow-xl z-50">
+						<div className="widget-menu absolute right-0 mt-2 w-48 overflow-y-auto bg-zinc-900/95 backdrop-blur border border-zinc-700 rounded-xl p-1.5 shadow-xl z-50">
+                            <button onClick={() => { void exportRoomBundle(); setWidgetMenuOpen(false); }} className="sm:hidden w-full rounded-lg px-2.5 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-800">Export room bundle</button>
+                            <button onClick={() => { roomBundleInputRef.current?.click(); setWidgetMenuOpen(false); }} className="sm:hidden w-full rounded-lg px-2.5 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-800">Import room bundle</button>
+							<button onClick={() => { spawnPanel('recorder', window.innerWidth / 2, window.innerHeight / 2); setWidgetMenuOpen(false); }} className="w-full rounded-lg px-2.5 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-800">Record canvas</button>
 							<button onClick={() => { spawnPanel('whiteboard', window.innerWidth / 2, window.innerHeight / 2); setWidgetMenuOpen(false); }} className="w-full rounded-lg px-2.5 py-2 text-left text-xs text-zinc-200 hover:bg-zinc-800">Whiteboard</button>
-							<button disabled={screenShare.busy || !localStream} aria-pressed={screenShare.sharing}
+							<button disabled={!screenShare.supported || screenShare.busy || !localStream} aria-pressed={screenShare.sharing}
 								onClick={() => { void screenShare.toggle(); setWidgetMenuOpen(false); }}
 								className="w-full text-left px-2.5 py-2 text-xs text-violet-300 rounded-lg hover:bg-zinc-800 disabled:opacity-50">
-								{screenShare.sharing ? 'Stop sharing' : 'Share screen'}
+								{!screenShare.supported ? 'Screen sharing unavailable' : screenShare.sharing ? 'Stop sharing' : 'Share screen'}
 							</button>
 							<button
 								onClick={() => {
@@ -2646,7 +2671,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 					</svg>
 					<span className="hidden lg:inline">{presentingId ? 'Stop presenting' : 'Present'}</span>
 				</button>
-				<div className="flex shrink-0 items-center gap-1">
+				<div className="hidden sm:flex shrink-0 items-center gap-1">
 					<button
 						onClick={exportRoomBundle}
 						className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-700 bg-zinc-800 text-zinc-400 transition-colors hover:bg-zinc-700 hover:text-white"

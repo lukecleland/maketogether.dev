@@ -9,6 +9,19 @@ interface HomeProps {
 }
 
 export function Home({ onStart }: HomeProps) {
+  const [visibleHeight, setVisibleHeight] = useState(() => window.visualViewport?.height ?? window.innerHeight);
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    const resize = () => {
+      if (!viewport || viewport.scale === 1) setVisibleHeight(viewport?.height ?? window.innerHeight);
+    };
+    viewport?.addEventListener('resize', resize);
+    window.addEventListener('resize', resize);
+    return () => {
+      viewport?.removeEventListener('resize', resize);
+      window.removeEventListener('resize', resize);
+    };
+  }, []);
   const [rotation, setRotation] = useState(() => ({
     words: buildBrandWords(),
     index: 0,
@@ -43,8 +56,8 @@ export function Home({ onStart }: HomeProps) {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 flex items-center justify-center p-6">
-      <div className="w-full max-w-sm">
+    <div style={{ height: visibleHeight }} className="home-screen h-full overflow-y-auto bg-zinc-950 flex p-6">
+      <div className="w-full max-w-sm m-auto shrink-0">
         {/* Logo / title */}
         <div className="text-center mb-10">
           <BrandMark rounded className="mx-auto mb-5 h-16 w-16" />

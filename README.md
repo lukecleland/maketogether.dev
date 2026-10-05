@@ -496,3 +496,14 @@ in the initial HTML, including a public 1200 × 630 PNG. Run
 existing brand mark and Outfit font. When replacing the artwork, use a new image
 filename in both the generator and metadata so cached images can refresh. Room
 invitation URLs retain their `?room=` parameter.
+
+### iPhone controls
+
+On narrow screens the header uses two rows; import/export and canvas recording
+are in **Add widget**. Use **Pointer** to pan the background with one finger,
+or use two fingers to pan and pinch. New panels and dock navigation frame the
+panel below the drawing toolbar. Touch resizing ends cleanly when a gesture is
+cancelled. YouTube link controls remain visible without hover and videos request
+inline playback. The landing form scrolls when the keyboard reduces the visible
+viewport. Screen sharing is disabled when the browser does not expose screen
+capture; receiving another participant's screen remains available.

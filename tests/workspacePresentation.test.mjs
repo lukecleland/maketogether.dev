@@ -58,3 +58,29 @@ test('audio themes survive portable room exports and reject unknown themes', () 
   snapshot.panels[0].audioTheme = 'bad'; assert.throws(() => parseRoomBundle(serialiseRoomBundle(snapshot)), /damaged/);
   delete snapshot.panels[0].audioTheme; assert.equal(parseRoomBundle(serialiseRoomBundle(snapshot)).panels[0].audioTheme, undefined);
 });
+
+test('phone panels fit between toolbars and dock without changing shared dimensions', () => {
+  const { framePanel } = load('src/utils/canvasViewport.ts');
+  for (const viewport of [{ width: 320, height: 568 }, { width: 390, height: 844 }, { width: 844, height: 390 }]) {
+    for (const dimensions of [{ width: 900, height: 480 }, { width: 560, height: 720 }, { width: 300, height: 300 }]) {
+      const panel = { x: -500, y: 1100, z: 1, ...dimensions };
+      const before = JSON.stringify(panel);
+      const top = viewport.width < 640 ? 164 : 108;
+      const view = framePanel(panel, viewport, top, 100);
+      const left = panel.x * view.scale + view.x, y = panel.y * view.scale + view.y;
+      assert.ok(left >= 12 - 0.01 && left + panel.width * view.scale <= viewport.width - 12 + 0.01);
+      assert.ok(y >= top - 0.01 && y + panel.height * view.scale <= viewport.height - 100 + 0.01);
+      assert.equal(JSON.stringify(panel), before);
+    }
+  }
+});
+test('pinch and pan retain the world point between fingers, including at zoom limits', () => {
+  const { transformGesture } = load('src/utils/canvasViewport.ts');
+  const view = { x: -120, y: 35, scale: 0.8 }, previous = { x: 100, y: 200 }, current = { x: 140, y: 180 };
+  for (const factor of [0.001, 0.7, 1, 1.5, 100]) {
+    const next = transformGesture(view, previous, current, factor);
+    assert.ok(next.scale >= 0.25 && next.scale <= 4);
+    assert.ok(Math.abs((previous.x - view.x) / view.scale - (current.x - next.x) / next.scale) < 0.0001);
+    assert.ok(Math.abs((previous.y - view.y) / view.scale - (current.y - next.y) / next.scale) < 0.0001);
+  }
+});

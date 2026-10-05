@@ -322,3 +322,36 @@ button:disabled {
 @media (any-pointer: coarse) {
   .daw-loop-handle { width: 44px; height: 44px; }
 }
+
+/* The visible viewport changes as Safari's address bar and keyboard move. */
+#root { height: 100dvh; padding-bottom: 0; }
+.home-screen {
+  padding-top: max(1.5rem, env(safe-area-inset-top));
+  padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+  padding-left: max(1.5rem, env(safe-area-inset-left));
+  padding-right: max(1.5rem, env(safe-area-inset-right));
+}
+input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-select: text; }
+.session-header {
+  padding-left: max(8px, env(safe-area-inset-left));
+  padding-right: max(8px, env(safe-area-inset-right));
+}
+.widget-menu { position: fixed; left: max(12px, env(safe-area-inset-left)); right: max(12px, env(safe-area-inset-right)); width: auto; max-width: 24rem; top: calc(var(--session-header-height, 3rem) + env(safe-area-inset-top)); margin-top: 4px; max-height: calc(100dvh - var(--session-header-height, 3rem) - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 24px); }
+.whiteboard-properties { max-height: calc(100dvh - var(--session-header-height, 3rem) - env(safe-area-inset-top) - 5rem); overflow-y: auto; }
+@media (max-width: 639px) {
+  :root { --session-header-height: 6rem; }
+  .session-header { flex-wrap: wrap; }
+  .session-header > div { width: 100%; min-height: 44px; justify-content: space-between; }
+  .session-header button { min-height: 40px; min-width: 36px; }
+  .whiteboard-tools { max-width: calc(100vw - 24px); overflow-x: auto; }
+  .whiteboard-tools > * { flex-shrink: 0; }
+  .widget-menu button { min-height: 44px; }
+}
+@media (any-pointer: coarse) {
+  /* 16px prevents Safari focus zoom; match the code overlay to its textarea. */
+  input:not([type="range"]):not([type="checkbox"]):not([type="color"]), textarea, select,
+  [contenteditable="true"], .code-highlight { font-size: 16px; }
+  .youtube-link-controls { opacity: 1; pointer-events: auto; }
+  .drag-handle { touch-action: none; }
+  .drag-handle button { min-width: 32px; min-height: 32px; }
+}

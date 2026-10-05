@@ -269,7 +269,7 @@ export function YoutubeWidget({
       <div className="relative flex-1 min-h-0 overflow-hidden">
           {/* The URL control floats over the video instead of taking permanent
               space. Focus keeps it visible while the pointer moves to type. */}
-          <div className="no-drag pointer-events-none absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-black/90 to-transparent p-2 pb-6 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
+          <div className="youtube-link-controls no-drag pointer-events-none absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-black/90 to-transparent p-2 pb-6 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100">
             <div className="relative min-w-0">
               <input
                 type="text"

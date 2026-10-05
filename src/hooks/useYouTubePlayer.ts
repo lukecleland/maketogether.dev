@@ -123,6 +123,7 @@ export function useYouTubePlayer(
         height: "100%",
         playerVars: {
           autoplay: 0,
+          playsinline: 1,
           modestbranding: 1,
           rel: 0,
           // Tells YouTube the exact origin allowed to communicate with the player.
