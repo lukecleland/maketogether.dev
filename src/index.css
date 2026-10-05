@@ -401,7 +401,6 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   [data-panel-expanded] .drag-handle { display: none; }
 }
 
-.mobile-tools-toggle { display: none; }
 @media (max-width: 639px), (any-pointer: coarse) and (max-width: 1023px) {
   .whiteboard-tools { padding: 2px; gap: 2px; border-radius: 9px; }
   .whiteboard-tools > button {
@@ -409,9 +408,6 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
     flex-shrink: 0;
   }
   .whiteboard-tools > button > svg:first-child { width: 14px; height: 14px; }
-  .whiteboard-tools .mobile-tools-toggle { display: flex; align-items: center; justify-content: center; }
-  .whiteboard-tools[data-mobile-collapsed="true"] > button:not([aria-pressed="true"]):not(.mobile-tools-toggle),
-  .whiteboard-tools[data-mobile-collapsed="true"] > div { display: none; }
   .whiteboard-tools .toolbar-tooltip { display: none; }
   .whiteboard-properties { top: calc(var(--session-header-height, 3rem) + env(safe-area-inset-top) + 2.75rem) !important; }
   .canvas-system-controls { padding: 2px; gap: 2px; border-radius: 9px; }
@@ -431,10 +427,10 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   .session-header > div:first-child img { width: 16px; height: 16px; }
   .session-header button:not(.widget-menu button) { border-radius: 6px; }
   .session-header button > svg { width: 14px; height: 14px; }
-  .session-header [aria-label="Add widget"], .session-header [data-summon-variant="bar"] {
+  .session-header [aria-label="Open menu"], .session-header [data-summon-variant="bar"] {
     background: #ffffff08; border-color: #ffffff14;
   }
-  .session-header [aria-label="Add widget"]:active, .session-header [data-summon-variant="bar"]:active {
+  .session-header [aria-label="Open menu"]:active, .session-header [data-summon-variant="bar"]:active {
     background: #ffffff20;
   }
   .session-header .brand-wordmark, .session-header [aria-label^="Version "],
@@ -543,4 +539,44 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
   }
   .invite-overlay > [role="dialog"] { max-height: 100%; overflow-y: auto; }
 
+}
+
+.mobile-menu-tools, .mobile-menu-zoom { display: none; }
+@media (max-width: 639px), (any-pointer: coarse) and (max-width: 1023px) {
+  .session-header .brand-wordmark { display: inline; font-size: 13px; line-height: 1; }
+  .header-zoom-controls { display: none; }
+  .session-header [aria-label="Open menu"] { width: 28px; }
+  .session-header .widget-menu {
+    display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px;
+    left: auto; right: max(12px, env(safe-area-inset-right));
+    width: min(244px, calc(var(--visible-width, 100vw) - env(safe-area-inset-left) - env(safe-area-inset-right) - 24px));
+    max-width: 244px; padding: 4px; border-radius: 9px;
+  }
+  .session-header .widget-menu > button {
+    min-height: 30px; padding: 4px 6px; font-size: 11px; border-radius: 5px;
+  }
+  .mobile-menu-tools, .mobile-menu-zoom { display: block; grid-column: 1 / -1; min-width: 0; }
+  .mobile-menu-zoom { padding: 3px 0; border-bottom: 1px solid #ffffff12; }
+  .session-header .mobile-menu-zoom button { width: auto; min-width: 28px; min-height: 28px; height: 28px; padding: 2px 4px; }
+  .mobile-menu-tools .whiteboard-tools {
+    position: static !important; transform: none; translate: none; max-width: 100%; width: 100%;
+    flex-wrap: wrap; gap: 1px; padding: 0; border: 0; border-radius: 0;
+    background: none; box-shadow: none; backdrop-filter: none;
+  }
+  .session-header .mobile-menu-tools .whiteboard-tools > button {
+    width: 28px; min-width: 28px; height: 28px; min-height: 28px; padding: 4px;
+  }
+  .mobile-menu-tools .whiteboard-tools > div { display: none; }
+  .mobile-menu-tools .whiteboard-properties {
+    position: static !important; width: 100%; max-width: 100%; max-height: none;
+    margin-top: 4px; padding: 6px; border-radius: 6px; box-shadow: none;
+  }
+  .mobile-menu-tools .whiteboard-properties .grid-cols-8 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .session-header .whiteboard-properties button { width: auto; min-height: 28px; height: auto; padding: 3px; }
+  [data-dock] { right: calc(var(--visible-right, 0px) + 72px + env(safe-area-inset-right)); max-height: 28px; }
+  [data-dock] > div { min-height: 26px; padding: 1px 3px; border-radius: 6px; }
+  [data-dock-entry] > span { max-width: 80px; }
+  .canvas-system-controls { padding: 1px; border-radius: 7px; }
+  .canvas-system-controls button { width: 26px; min-width: 26px; height: 26px; padding: 5px; border-radius: 5px; }
+  .canvas-system-controls svg { width: 14px; height: 14px; }
 }

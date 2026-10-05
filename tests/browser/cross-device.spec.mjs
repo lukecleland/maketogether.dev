@@ -59,7 +59,7 @@ test("desktop, iPhone and tablet share edits, drawings, late joins and rejoining
         .isVisible())
     ) {
       await page
-        .getByRole("button", { name: "Add widget", exact: true })
+        .getByRole("button", { name: "Open menu", exact: true })
         .click();
     }
     const download = page.waitForEvent("download");
