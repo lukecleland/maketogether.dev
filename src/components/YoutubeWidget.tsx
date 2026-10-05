@@ -197,6 +197,7 @@ export function YoutubeWidget({
       if (msg.type === "load") {
         applyingRef.current = true; sampleRef.current = null;
         playbackStateRef.current = { time: 0, at: Date.now(), playing: true };
+        onPlaybackChangeRef.current?.(playbackStateRef.current);
         setPlaying(true); setPosition(0);
         setInputValue(watchUrl(msg.videoId)); setHasVideo(true);
         loadVideo(msg.videoId); onVideoChange?.(msg.videoId);
@@ -204,6 +205,7 @@ export function YoutubeWidget({
         applyingRef.current = true; sampleRef.current = null;
         const playing = msg.type === "play" || (msg.type === "seek" && (msg.playing ?? playbackStateRef.current.playing));
         playbackStateRef.current = { time: msg.time, at: msg.at ?? Date.now(), playing };
+        onPlaybackChangeRef.current?.(playbackStateRef.current);
         setPlaying(playing); setPosition(msg.time);
         seekTo(playing ? currentSyncedTime(msg.time, msg.at) : msg.time);
         if (playing) playVideo(); else pauseVideo();
@@ -222,6 +224,7 @@ export function YoutubeWidget({
   const startVideo = (videoId: string) => {
     applyingRef.current = true; sampleRef.current = null;
     playbackStateRef.current = { time: 0, at: Date.now(), playing: true };
+    onPlaybackChangeRef.current?.(playbackStateRef.current);
     setPlaying(true); setPosition(0); setHasVideo(true); loadVideo(videoId);
   };
 

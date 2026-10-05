@@ -1864,7 +1864,7 @@ export function DawWidget({
             void addFiles(relink ? files.slice(0, 1) : files, relink);
           }}
         />
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-800 p-2">
+        <div className="daw-toolbar flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-800 p-2">
           <div
             className="flex items-center gap-0.5 rounded-lg border border-zinc-700 bg-zinc-900 p-1"
             aria-label="Transport controls"
@@ -2037,6 +2037,7 @@ export function DawWidget({
         <Toast message={error} label="DAW error" onDismiss={() => setError("")} />
         <div
           ref={timelineRef}
+          data-daw-timeline
           onScroll={(e) => setScrollLeft(e.currentTarget.scrollLeft)}
           className="min-h-0 flex-1 overflow-auto"
           onContextMenu={(event) => {
@@ -2584,7 +2585,7 @@ export function DawWidget({
             onNoteOff={noteOff}
           />
         )}
-        <div className="shrink-0 border-t border-zinc-800 px-3 py-1.5 text-[10px] text-zinc-500">
+        <div className="daw-status shrink-0 border-t border-zinc-800 px-3 py-1.5 text-[10px] text-zinc-500">
           {audioBlocked && (
               <button
                 className={`${button} mr-2`}

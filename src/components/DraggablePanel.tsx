@@ -1,6 +1,6 @@
 import { PanelOverviewContext } from './PanelOverviewContext';
 import { useMovementSync } from "../hooks/useMovementSync";
-import { useContext, useEffect, useRef, type CSSProperties } from "react";
+import { useContext, useEffect, useRef, useState, type CSSProperties } from "react";
 import Draggable, {
   type DraggableEvent,
   type DraggableData,
@@ -51,6 +51,7 @@ interface DraggablePanelProps {
   minimized?: boolean;
   onMinimize?: () => void;
   minimizeControlHandled?: boolean;
+  landscapeLabel?: string;
 }
 
 interface ResizeEdges {
@@ -132,7 +133,16 @@ export function DraggablePanel({
   minimized = false,
   onMinimize,
   minimizeControlHandled = false,
+  landscapeLabel,
 }: DraggablePanelProps) {
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    const query = window.matchMedia('(any-pointer: coarse) and (orientation: landscape) and (max-height: 600px)');
+    const restore = () => { if (!query.matches) setExpanded(false); };
+    query.addEventListener('change', restore);
+    return () => query.removeEventListener('change', restore);
+  }, []);
+  if (minimized && expanded) setExpanded(false);
   const overview = useContext(PanelOverviewContext);
   const frame = panelId ? overview?.frames[panelId] : undefined;
   const nodeRef = useRef<HTMLDivElement>(null);
@@ -240,7 +250,7 @@ export function DraggablePanel({
     <Draggable
       nodeRef={nodeRef as React.RefObject<HTMLElement>}
       position={{ x: frame?.x ?? state.x, y: frame?.y ?? state.y }}
-      disabled={!!frame}
+      disabled={!!frame || expanded}
       onStart={(event) => {
         dragInterrupted.current = false;
         if ("touches" in event && event.touches.length !== 1) return false;
@@ -256,14 +266,16 @@ export function DraggablePanel({
       <div
         {...(excludeFromRecording ? { "data-recording-exclude": true } : {})}
         ref={nodeRef}
+        data-panel-expanded={expanded || undefined}
         style={{
+          "--panel-local-scale": scale,
           width: frame?.width ?? state.width,
           height: frame?.height ?? state.height,
           zIndex: frame ? 1 : state.z,
           // The full-screen transformed parent is click-through so it cannot
           // block whiteboard strokes; only visible panels opt back in.
           pointerEvents: "auto",
-        }}
+        } as CSSProperties}
         className={`draggable-panel absolute ${className}`}
         onPointerDown={frame ? undefined : onBringToFront}
         onDoubleClick={(event) => {
@@ -285,6 +297,13 @@ export function DraggablePanel({
           style={{ opacity: minimized && !frame ? 0 : 1, pointerEvents: frame || minimized ? "none" : "auto", ...(frame ? { width: state.width, height: state.height, transform: `scale(${frame.scale})`, transformOrigin: 'top left' } : {}) }}
         >
         {children}
+        {landscapeLabel && !frame && !minimized && <button
+          type="button"
+          className="landscape-expand no-drag"
+          aria-label={expanded ? "Back to canvas" : `Expand ${landscapeLabel}`}
+          aria-expanded={expanded}
+          onClick={() => setExpanded(value => !value)}
+        >{expanded ? "← Back to canvas" : "⛶ Full screen"}</button>}
 
         {onMinimize && !minimized && !minimizeControlHandled && (
           <button

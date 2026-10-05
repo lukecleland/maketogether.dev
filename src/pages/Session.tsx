@@ -1815,7 +1815,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 				}}
 				title={`Tag ${label}`}
 				aria-label={`Tag ${label}`}
-				className="absolute top-0 left-0 z-30 flex items-center gap-1 rounded-md bg-brand-600/95 hover:bg-brand-500 text-white text-[11px] font-medium px-1.5 py-1 shadow-lg pointer-events-auto"
+				className="zoom-tag-handle absolute top-0 left-0 z-30 flex items-center gap-1 rounded-md bg-brand-600/95 hover:bg-brand-500 text-white text-[11px] font-medium px-1.5 py-1 shadow-lg pointer-events-auto"
 				style={{
 					transform: `scale(${1 / canvas.scale})`,
 					transformOrigin: 'top left'
@@ -3007,6 +3007,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 						panelId={panel.id}
 						minimized={minimizedIds.includes(panel.id)}
 						onMinimize={() => minimizePanel(panel.id)}
+						landscapeLabel={panel.type === 'daw' ? 'DAW' : panel.type === 'youtube' ? 'YouTube' : undefined}
 						minimizeControlHandled={panel.type === 'whiteboard' || panel.type === 'youtube' || panel.type === 'code' || panel.type === 'daw'}
 						state={panel.state}
 						excludeFromRecording={panel.type === 'recorder'}

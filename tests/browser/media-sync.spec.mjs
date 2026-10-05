@@ -72,6 +72,45 @@ test('YouTube controls and DAW transport work across desktop and a blocked iPhon
     await daw(phone).getByRole('spinbutton', { name: 'Tempo' }).fill('90');
     await expect(daw(desktop).getByRole('spinbutton', { name: 'Tempo' })).toHaveValue('90');
     await expect(daw(tablet).getByRole('spinbutton', { name: 'Tempo' })).toHaveValue('90');
+    const sharedSize = await daw(desktop).evaluate(el => {
+      const panel = el.closest('.draggable-panel'); return [panel.style.width, panel.style.height];
+    });
+    for (const viewport of [{ width: 844, height: 390 }, { width: 667, height: 375 }, { width: 568, height: 320 }, { width: 932, height: 430 }]) {
+      await phone.setViewportSize(viewport);
+      await phone.getByRole('button', { name: 'Go to Make Music Together', exact: true }).click();
+      await phone.getByRole('button', { name: 'Expand DAW', exact: true }).click();
+      const expanded = phone.locator('[data-panel-expanded]');
+      await expect(expanded).toHaveCount(1);
+      const bounds = await expanded.boundingBox();
+      expect(bounds.width).toBe(viewport.width); expect(bounds.height).toBe(viewport.height);
+      const play = daw(phone).getByRole('button', { name: 'Play', exact: true });
+      const control = await play.boundingBox();
+      expect(control.width).toBeGreaterThanOrEqual(44); expect(control.height).toBeGreaterThanOrEqual(44);
+      const timeline = await phone.locator('[data-daw-timeline]').boundingBox();
+      expect(timeline.height).toBeGreaterThanOrEqual(90);
+      await play.click();
+      await expect(daw(desktop).getByRole('button', { name: 'Pause', exact: true })).toBeVisible();
+      await daw(phone).getByRole('button', { name: 'Pause', exact: true }).click();
+      await phone.getByRole('button', { name: 'Back to canvas', exact: true }).click();
+      await phone.getByRole('button', { name: 'Go to Test video', exact: true }).click();
+      await phone.getByRole('button', { name: 'Expand YouTube', exact: true }).click();
+      await expect(phone.getByRole('button', { name: 'Play YouTube for everyone' })).toBeVisible();
+      await phone.getByRole('button', { name: 'Play YouTube for everyone' }).click();
+      await expect(desktop.getByRole('button', { name: 'Pause YouTube for everyone' })).toBeVisible();
+      await phone.getByRole('button', { name: 'Pause YouTube for everyone' }).click();
+      await phone.getByRole('slider', { name: 'YouTube playback position' }).fill('80');
+      await expect.poll(() => desktop.evaluate(() => window.testYoutube.getCurrentTime())).toBe(80);
+      if (viewport.width === 844) await phone.screenshot({ path: '/private/tmp/maketogether-landscape-youtube.png' });
+      await phone.getByRole('button', { name: 'Back to canvas', exact: true }).click();
+    }
+    await phone.getByRole('button', { name: 'Go to Make Music Together', exact: true }).click();
+    await phone.getByRole('button', { name: 'Expand DAW', exact: true }).click();
+    await phone.screenshot({ path: '/private/tmp/maketogether-landscape-daw.png' });
+    await phone.setViewportSize({ width: 390, height: 844 });
+    await expect(phone.locator('[data-panel-expanded]')).toHaveCount(0);
+    expect(await daw(desktop).evaluate(el => {
+      const panel = el.closest('.draggable-panel'); return [panel.style.width, panel.style.height];
+    })).toEqual(sharedSize);
     expect(errors).toEqual([]);
   } finally { await Promise.all(contexts.map(context => context.close().catch(() => {}))); }
 });
