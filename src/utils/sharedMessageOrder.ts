@@ -14,6 +14,7 @@ export class SharedMessageOrder {
       case 'note-update': case 'code-update': case 'audio-theme': case 'pdf-page':
       case 'browser-load': case 'browser-scroll': case 'dock-rename':
       case 'text-edit': case 'text-move': return `${message.type}:${id}`;
+      case 'load': return `youtube-video:${id}`;
       case 'play': case 'pause': case 'seek': return `youtube:${id}`;
       case 'audio-play': case 'audio-pause': case 'audio-seek': return `audio:${id}`;
       case 'recording-select': case 'recording-play': case 'recording-pause': case 'recording-seek': return `recording:${id}`;

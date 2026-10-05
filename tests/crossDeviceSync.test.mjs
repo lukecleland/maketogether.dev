@@ -106,18 +106,20 @@ test('whiteboard strokes, shapes and text retain identical world geometry after 
 
 test('YouTube retains the final remote transport and volume while the iframe loads', async () => {
   const effects = [], calls = []; let options; let now = 10000;
-  const player = { loadVideoById: id => calls.push(['load', id]), seekTo: time => calls.push(['seek', time]), playVideo: () => calls.push(['play']), pauseVideo: () => calls.push(['pause']), setVolume: value => calls.push(['volume', value]) };
+  const player = { loadVideoById: (id, time) => calls.push(['load', id, time]), cueVideoById: (id, time) => calls.push(['cue', id, time]), seekTo: time => calls.push(['seek', time]), playVideo: () => calls.push(['play']), pauseVideo: () => calls.push(['pause']), setVolume: value => calls.push(['volume', value]) };
   const react = { useRef: current => ({ current }), useCallback: fn => fn, useEffect: fn => effects.push(fn) };
   const { useYouTubePlayer } = load('src/hooks/useYouTubePlayer.ts', { react }, { Date: { now: () => now }, window: { location: { origin: 'https://maketogether.dev' }, YT: { Player: class { constructor(_element, input) { options = input; } } } }, document: { createElement: () => ({}) } });
   const controls = useYouTubePlayer({ current: { appendChild() {} } });
   effects.forEach(fn => fn()); await Promise.resolve();
   controls.loadVideo('shared-video'); controls.seekTo(40); controls.playVideo(); controls.pauseVideo(); controls.setVolume(25);
   now += 5000; options.events.onReady({ target: player });
-  assert.ok(calls.some(([name,value]) => name === 'seek' && value === 40));
-  assert.equal(calls.at(-1)[0], 'pause');
+  assert.deepEqual(calls.at(-1), ['cue', 'shared-video', 40]);
+  assert.equal(calls.some(([name]) => name === 'load'), false, 'pre-ready Pause must not autoplay even briefly');
   assert.ok(calls.some(([name,value]) => name === 'volume' && value === 25));
   controls.restorePlayback('shared-video', 40, true, 10000);
-  assert.equal(calls.at(-2)[1], 45);
+  assert.deepEqual(calls.at(-1), ['load', 'shared-video', 45]);
+  controls.restorePlayback('shared-video', 17, false);
+  assert.deepEqual(calls.at(-1), ['cue', 'shared-video', 17]);
 });
 
 

@@ -37,6 +37,7 @@ function room() {
       react: { useRef: value => ({ current: value }), useEffectEvent: fn => fn, useEffect: fn => { client.cleanup = fn(); } },
       '../utils/dawSync': utils,
     }, { Date: Clock, crypto: { randomUUID: () => `id-${String(++sequence).padStart(5, '0')}` },
+      document: { visibilityState: 'visible', addEventListener(_event, fn) { client.recover = fn; }, removeEventListener() {} },
       setInterval: fn => { client.tick = fn; return 1; }, clearInterval() {} });
     client.sync = useDawSync('daw', client.connection, activity => client.received.push(activity),
       () => client.preview, view => client.views.push(view), (owner, voices) => client.voices.push({ owner, voices }));
@@ -160,4 +161,18 @@ test('click synthesis accents the first beat and cleans up without touching arra
   oscillators[0].onended();
   assert.equal(oscillators[0].disconnected, true);
   assert.equal(gains[0].disconnected, true);
+});
+
+test('returning to a DAW requests the latest transport and mixer view', () => {
+  const r = room(), desktop = r.add(), phone = r.add(); r.flush();
+  desktop.sync.publish('playing', 5); r.flush();
+  phone.connection.open = false;
+  desktop.sync.publish('stopped', 27);
+  desktop.sync.publishView({ tempo: 88, selected: 'new-track' }); r.flush();
+  phone.connection.open = true;
+  phone.recover(); r.flush();
+  assert.equal(phone.received.at(-1).mode, 'stopped');
+  assert.equal(phone.received.at(-1).position, 27);
+  assert.equal(phone.views.at(-1).tempo, 88);
+  assert.equal(phone.views.at(-1).selected, 'new-track');
 });

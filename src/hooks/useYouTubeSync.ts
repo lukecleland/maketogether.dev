@@ -45,7 +45,7 @@ export type SyncMessage = (
 	| { type: 'load'; id: string; videoId: string }
 	| { type: 'play'; id: string; time: number; at?: number }
 	| { type: 'pause'; id: string; time: number; at?: number }
-	| { type: 'seek'; id: string; time: number; at?: number }
+	| { type: 'seek'; id: string; time: number; at?: number; playing?: boolean }
 	| { type: 'audio-play'; id: string; time: number; at?: number }
 	| { type: 'audio-pause'; id: string; time: number; at?: number }
 	| { type: 'audio-seek'; id: string; time: number; at?: number; playing?: boolean }

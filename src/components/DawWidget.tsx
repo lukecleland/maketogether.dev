@@ -398,7 +398,11 @@ export function DawWidget({
     transport.at = ctx.currentTime;
   }, [tracks, buffers, remotePosition]);
 
-  const publishTimelineEnd = useEffectEvent(() => sync.publish("stopped", MAX_DAW_SECONDS));
+  const publishTimelineEnd = useEffectEvent(() => {
+    const activity = remoteActivityRef.current;
+    if (!activity || activity.owner === sync.ownerId) sync.publish("stopped", MAX_DAW_SECONDS);
+    remoteActivityRef.current = null;
+  });
 
   // One animation clock owns the visible playhead. Network snapshots and audio
   // scheduling must not write older positions over an already-rendered frame.
@@ -435,7 +439,7 @@ export function DawWidget({
             sourcesRef.current = [];
             setPlaying(false);
             setPlayhead(MAX_DAW_SECONDS);
-            if (!remote) publishTimelineEnd();
+            publishTimelineEnd();
             return;
           }
           setPlayhead(position);
@@ -661,16 +665,26 @@ export function DawWidget({
   const playFrom = async (position: number, share = true) => {
     if (share && (recording || busy || missing)) return;
     const request = ++transportRequestRef.current;
+    if (share) {
+      stopSources();
+      transportRef.current.active = false;
+      remoteActivityRef.current = sync.publish("playing", position);
+      remoteClockRef.current = { id: remoteActivityRef.current.id, position, at: performance.now() };
+      setPlayhead(position);
+      setPlaying(true);
+    }
     try {
       const ctx = context();
+      if (dawAudioNeedsGesture(ctx)) setAudioBlocked(true);
       await resumeDawAudio(ctx, share);
       if (!aliveRef.current || request !== transportRequestRef.current) return;
       if (dawAudioNeedsGesture(ctx)) {
         setAudioBlocked(true);
         return;
       }
+      setAudioBlocked(false);
       const current =
-        !share && remoteActivityRef.current?.mode === "playing"
+        remoteActivityRef.current?.mode === "playing"
           ? remotePosition(remoteActivityRef.current)
           : position;
       const currentTracks = tracksRef.current;
@@ -685,12 +699,6 @@ export function DawWidget({
       );
       transportRef.current = { active: true, at: ctx.currentTime, offset };
       setClickSchedule(previous => previous + 1);
-      if (share) {
-        setPlayhead(offset);
-        setPlaying(true);
-        remoteActivityRef.current = null;
-        sync.publish("playing", offset);
-      }
       setError("");
     } catch {
       if (aliveRef.current)
@@ -700,9 +708,10 @@ export function DawWidget({
 
   const recoverAudio = useEffectEvent(() => {
     const ctx = contextRef.current;
-    if (!ctx || document.visibilityState === 'hidden' || !dawAudioNeedsGesture(ctx)) return;
+    if (!ctx || document.visibilityState === 'hidden') return;
     void resumeDawAudio(ctx).then(() => {
       if (!aliveRef.current || dawAudioNeedsGesture(ctx)) return;
+      setAudioBlocked(false);
       const activity = remoteActivityRef.current;
       if (activity?.mode === 'playing') void playFrom(remotePosition(activity), false);
       else if (transportRef.current.active) void playFrom(currentPosition(), false);
@@ -1282,7 +1291,8 @@ export function DawWidget({
       remoteActivityRef.current = null;
       setPlayhead(next);
       setPlaying(true);
-      sync.publish("playing", next);
+      remoteActivityRef.current = sync.publish("playing", next);
+      remoteClockRef.current = { id: remoteActivityRef.current.id, position: next, at: performance.now() };
       void playFrom(next, false);
     }
     else {
@@ -2586,6 +2596,7 @@ export function DawWidget({
                       setAudioBlocked(true);
                       return;
                     }
+                    setAudioBlocked(false);
                     const activity = remoteActivityRef.current;
                     if (activity?.mode === "playing")
                       void playFrom(remotePosition(activity), false);
