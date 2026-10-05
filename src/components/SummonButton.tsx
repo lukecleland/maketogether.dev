@@ -205,7 +205,7 @@ export function SummonButton({ roomCode }: SummonButtonProps) {
 
       {modalOpen && createPortal(
         <div
-          className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm"
+          className="invite-overlay fixed inset-0 z-[2000] flex items-center justify-center bg-black/65 p-4 backdrop-blur-sm"
           onMouseDown={e => {
             if (e.target === e.currentTarget) setModalOpen(false);
           }}

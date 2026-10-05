@@ -1,3 +1,4 @@
+import { useVisibleViewport } from '../hooks/useVisibleViewport';
 import { DRAWING_VIEWPORT, convertDrawing, migrateDrawingCoordinates } from '../utils/drawingCoordinates';
 import { framePanel, transformGesture } from '../utils/canvasViewport';
 import { CanvasSystemControls } from '../components/CanvasSystemControls';
@@ -200,6 +201,7 @@ function parseYouTubeVideoId(input: string): string | null {
 }
 
 export function Session({ roomCode, isHost }: SessionProps) {
+	useVisibleViewport();
 	const [savedRoom] = useState(() => { const saved = loadRoomSnapshot(roomCode); return saved ? migrateDrawingCoordinates(saved) : null; });
 	const [localStream, setLocalStream] = useState<MediaStream | null>(null);
 	const [microphoneEnabled, setMicrophoneEnabled] = useState(false);
