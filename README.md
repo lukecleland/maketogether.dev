@@ -48,8 +48,10 @@ between participants over WebRTC; PeerJS Cloud is used for signalling.
   for Record player and Tape deck. Tape reels rotate during playback and
   mechanical controls include ten-second rewind/forward. Themes, play, pause
   and seek state are shared and saved.
-- **Screen sharing** — share a browser tab or window to browse together. The mini
-  browser is disabled while reliable browsing sync is unavailable.
+- **Screen sharing** — share a browser tab or window to browse together.
+- **Shared browser (deployment gated)** — participants control one remote browser,
+  including navigation, clicks, typing and scrolling. Requires the separate
+  [shared browser service](services/shared-browser/README.md); disabled until configured.
 - **Sticky notes** — switch between text, guitar chord diagrams and tablature;
   notes can contain multiple chords
 - **Code editor** — write or paste syntax-highlighted snippets and format
@@ -117,8 +119,10 @@ place; restoring never moves or zooms the canvas.
 - **Four participants is a deliberate ceiling.** A full mesh creates a direct
   media connection between every pair and does not scale like an SFU-backed
   conferencing system.
-- **Mini browser is disabled.** Use **Share screen** to browse together. Existing
-  browser panels show a disabled notice; their saved data is retained.
+- **Shared browsing needs a server.** The new browser panel remains disabled until
+  its service is deployed and configured. Netlify hosts the app and ticket function;
+  the persistent Chromium service runs separately. Existing browser panel IDs and
+  saved addresses are retained. Shared browser audio is not streamed.
 - **Browser media policies still apply.** iOS and other browsers may require a
   tap before remote audio can play, and autoplay restrictions can delay a
   remotely triggered player.
