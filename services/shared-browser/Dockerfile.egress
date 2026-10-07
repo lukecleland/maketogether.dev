@@ -1,0 +1,8 @@
+FROM node:24-bookworm-slim
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts
+COPY egress.mjs ./
+USER node
+EXPOSE 8081
+CMD ["node", "egress.mjs"]

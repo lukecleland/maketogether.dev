@@ -2042,7 +2042,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 	// Whatever is on the clipboard lands where the pointer is, as the nearest
 	// sensible thing: an image becomes a compressed panel, a YouTube link becomes
 	// a player, and other links and plain text become canvas text.
-	// Mini-browser creation stays disabled in favour of Share screen.
+	// Other URLs become shared-browser panels when the service is enabled.
 	const pointerRef = useRef({ x: 0, y: 0 });
 	useEffect(() => {
 		const onPointer = (e: PointerEvent) => {
@@ -2986,7 +2986,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 						panelId={panel.id}
 						minimized={minimizedIds.includes(panel.id)}
 						onMinimize={() => minimizePanel(panel.id)}
-						landscapeLabel={panel.type === 'daw' ? 'DAW' : panel.type === 'youtube' ? 'YouTube' : undefined}
+						landscapeLabel={panel.type === 'daw' ? 'DAW' : panel.type === 'youtube' ? 'YouTube' : panel.type === 'browser' ? 'Browser' : undefined}
 						minimizeControlHandled={panel.type === 'whiteboard' || panel.type === 'youtube' || panel.type === 'code' || panel.type === 'daw'}
 						state={panel.state}
 						excludeFromRecording={panel.type === 'recorder'}
@@ -3124,16 +3124,13 @@ export function Session({ roomCode, isHost }: SessionProps) {
 							/>
 						) : (
 							<BrowserWidget
+								roomCode={roomCode}
+								panelId={panel.id}
 								title={customLabels[panel.id] ?? panelLabels[panel.id] ?? fallbackLabel(panel)}
 								initialUrl={panel.initialUrl}
 								onClose={() => removePanel(panel.id)}
 								docked={dockedIds.includes(panel.id)}
 								onToggleDock={() => toggleDock(panel.id)}
-								browserScroll={panel.browserScroll}
-								onScrollChange={scroll => {
-									updateDynamicPanel(panel.id, { browserScroll: scroll });
-									sendSync({ type: 'browser-scroll', id: panel.id, ...scroll });
-								}}
 								onUrlChange={url => {
 									updateDynamicPanel(panel.id, { initialUrl: url, browserScroll: undefined });
 									setPanelLabels(previous => ({ ...previous, [panel.id]: new URL(url).hostname }));

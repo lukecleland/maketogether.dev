@@ -313,7 +313,7 @@ export function DraggablePanel({
           aria-expanded={expanded}
           onClick={() => setExpanded(value => !value)}
         >
-          {landscapeLabel === "DAW" ? (
+          {(landscapeLabel === "DAW" || landscapeLabel === "Browser") ? (
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true">
               <path d={expanded ? "M9 3v6H3m12-6v6h6M3 15h6v6m12-6h-6v6" : "M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"} />
             </svg>

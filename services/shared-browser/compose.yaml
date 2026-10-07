@@ -1,0 +1,36 @@
+services:
+  browser:
+    build: .
+    init: true
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      BROWSER_SIGNING_KEY: ${BROWSER_SIGNING_KEY:?Set a random signing key of at least 32 characters}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-https://maketogether.dev}
+      EGRESS_PROXY: http://egress:8081
+    networks: [isolated]
+    depends_on: [egress]
+    shm_size: 1gb
+    mem_limit: 3g
+    cpus: 2
+    pids_limit: 512
+    security_opt:
+      - seccomp=./seccomp_profile.json
+    cap_drop: [ALL]
+  egress:
+    build:
+      context: .
+      dockerfile: Dockerfile.egress
+    init: true
+    restart: unless-stopped
+    networks: [isolated, internet]
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 32
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+networks:
+  isolated:
+    internal: true
+  internet: {}
