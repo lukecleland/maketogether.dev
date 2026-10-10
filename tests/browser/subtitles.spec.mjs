@@ -41,7 +41,13 @@ test('captions use dock names, resize, expire, and stop on mute', async ({ page,
   await page.getByRole('checkbox', { name: 'Show subtitles' }).uncheck();
   await expect(subtitles).toHaveCount(0);
   await page.getByRole('checkbox', { name: 'Show subtitles' }).check();
+  await page.getByRole('button', { name: 'Close subtitle settings', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Subtitle settings', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Subtitle settings', exact: true })).toBeFocused();
   await page.getByRole('button', { name: 'Subtitle settings', exact: true }).click();
+  await expect(page.getByRole('slider', { name: 'Subtitle text size' })).toHaveValue('32');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('region', { name: 'Subtitle settings', exact: true })).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await speak('Subtitles on a small screen');
   await page.screenshot({ path: '/private/tmp/maketogether-subtitles.png' });
