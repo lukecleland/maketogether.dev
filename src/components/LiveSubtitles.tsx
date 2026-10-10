@@ -25,6 +25,19 @@ interface Props {
 
 export function LiveSubtitles({ connection, microphoneEnabled, labels, participants }: Props) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsButton = useRef<HTMLButtonElement>(null);
+  const closeSettings = useCallback(() => {
+    setSettingsOpen(false);
+    settingsButton.current?.focus();
+  }, []);
+  useEffect(() => {
+    if (!settingsOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeSettings();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [settingsOpen, closeSettings]);
   const [visible, setVisible] = useState(true);
   const [sharing, setSharing] = useState(false);
   const [error, setError] = useState('');
@@ -110,9 +123,12 @@ export function LiveSubtitles({ connection, microphoneEnabled, labels, participa
   };
   return <>
     <div data-canvas-chrome className="subtitle-controls">
-      <button aria-label="Subtitle settings" aria-expanded={settingsOpen} onClick={() => setSettingsOpen(value => !value)}>CC</button>
+      <button ref={settingsButton} aria-label="Subtitle settings" aria-expanded={settingsOpen} onClick={() => setSettingsOpen(value => !value)}>CC</button>
       {settingsOpen && <section aria-label="Subtitle settings" className="subtitle-settings">
-        <strong>Live subtitles</strong>
+        <div className="flex items-center justify-between gap-3">
+          <strong>Live subtitles</strong>
+          <button type="button" aria-label="Close subtitle settings" title="Close subtitle settings" onClick={closeSettings}>×</button>
+        </div>
         <label><input type="checkbox" checked={visible} onChange={event => setVisible(event.target.checked)} /> Show subtitles</label>
         <label>Text size: {size}px<input aria-label="Subtitle text size" type="range" min="16" max="40" step="2" value={size} onChange={event => {
           const next = Number(event.target.value); setSize(next);
