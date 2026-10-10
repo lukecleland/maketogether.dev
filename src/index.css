@@ -591,7 +591,11 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
 
 /* Viewport subtitles stay readable independently of canvas zoom. */
 .subtitle-controls { position: fixed; z-index: 1204; right: 12px; bottom: calc(86px + env(safe-area-inset-bottom)); }
-.subtitle-controls > button { background: #27272a; color: white; border: 1px solid #71717a; border-radius: 6px; padding: 6px 10px; font-weight: 700; }
+.subtitle-buttons button { background: #27272a; color: white; border: 1px solid #71717a; border-radius: 6px; padding: 6px 10px; font-weight: 700; }
+.subtitle-buttons { display: flex; gap: 2px; }
+.subtitle-buttons button { display: flex; align-items: center; justify-content: center; min-height: 36px; }
+.subtitle-buttons .subtitle-toggle[aria-pressed="true"] { background: #7c3aed; border-color: #c4b5fd; color: #fff; box-shadow: 0 0 0 2px #a78bfa40; }
+.subtitle-controls .subtitle-status { display: block; position: absolute; right: 0; top: 100%; white-space: nowrap; color: #fcd34d; background: #18181b; font-size: 11px; padding: 2px 4px; border-radius: 4px; }
 .subtitle-settings { position: absolute; right: 0; bottom: 42px; width: min(300px, calc(100vw - 24px)); max-height: 65dvh; overflow: auto; display: grid; gap: 12px; padding: 16px; border: 1px solid #52525b; border-radius: 12px; background: #18181b; color: white; font-size: 14px; box-shadow: 0 8px 30px #0008; }
 .subtitle-settings label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .subtitle-settings input[type="range"] { width: 100%; }

@@ -38,8 +38,8 @@ export function LiveSubtitles({ connection, microphoneEnabled, labels, participa
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [settingsOpen, closeSettings]);
-  const [visible, setVisible] = useState(true);
-  const [sharing, setSharing] = useState(false);
+  const [enabled, setEnabled] = useState(false);
+  const [retry, setRetry] = useState(0);
   const [error, setError] = useState('');
   const [size, setSize] = useState(() => {
     try { return Math.min(40, Math.max(16, Number(localStorage.getItem('maketogether.subtitleSize')) || 24)); }
@@ -73,7 +73,7 @@ export function LiveSubtitles({ connection, microphoneEnabled, labels, participa
     return () => connection.off('data', receive);
   }, [connection, updateCue]);
   useEffect(() => {
-    if (!sharing || !microphoneEnabled || !RecognitionAPI) return;
+    if (!enabled || !microphoneEnabled || !RecognitionAPI) return;
     const recognition = new RecognitionAPI();
     let stopped = false;
     let restart: ReturnType<typeof setTimeout> | undefined;
@@ -87,6 +87,7 @@ export function LiveSubtitles({ connection, microphoneEnabled, labels, participa
     recognition.onresult = event => {
       if (stopped) return;
       const text = Array.from(event.results).slice(event.resultIndex).map(result => result[0].transcript).join(' ').trim();
+      setError('');
       publish(text.slice(-240));
     };
     recognition.onerror = event => {
@@ -94,13 +95,15 @@ export function LiveSubtitles({ connection, microphoneEnabled, labels, participa
       stopped = true;
       setError(event.error === 'not-allowed' || event.error === 'service-not-allowed'
         ? 'Speech recognition permission was denied. Allow microphone access and try again.'
-        : 'Speech recognition is unavailable. Try sharing captions again.');
-      setSharing(false);
+        : 'Speech recognition is unavailable. Retry below or turn CC off and on.');
+      clearTimeout(restart);
+      recognition.abort();
+      publish('');
     };
     const start = () => {
       if (stopped) return;
       try { recognition.start(); }
-      catch { stopped = true; setError('Could not start speech recognition. Try again.'); setSharing(false); }
+      catch { stopped = true; setError('Could not start speech recognition. Try again.'); }
     };
     recognition.onend = () => { if (!stopped) restart = setTimeout(start, 1000); };
     start();
@@ -113,7 +116,7 @@ export function LiveSubtitles({ connection, microphoneEnabled, labels, participa
       recognition.abort();
       publish('');
     };
-  }, [sharing, microphoneEnabled, connection, updateCue]);
+  }, [enabled, microphoneEnabled, connection, updateCue, retry]);
 
   const nameFor = (id: string) => {
     if (labels[id]) return labels[id];
@@ -123,27 +126,39 @@ export function LiveSubtitles({ connection, microphoneEnabled, labels, participa
   };
   return <>
     <div data-canvas-chrome className="subtitle-controls">
-      <button ref={settingsButton} aria-label="Subtitle settings" aria-expanded={settingsOpen} onClick={() => setSettingsOpen(value => !value)}>CC</button>
+      <div className="subtitle-buttons" role="group" aria-label="Caption controls">
+        <button className="subtitle-toggle" aria-label="Closed captions" aria-pressed={enabled}
+          title={enabled ? 'Turn captions off' : 'Turn captions on and share your speech with this room'}
+          onClick={() => { setError(''); setEnabled(value => !value); }}>CC</button>
+        <button ref={settingsButton} aria-label="Subtitle settings" title="Subtitle settings" aria-expanded={settingsOpen} onClick={() => setSettingsOpen(value => !value)}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+            <path strokeLinejoin="round" d="m9 3-.6 2.4-2.1 1.2L4 6l-2 3.5 1.7 1.8v2.4L2 15.5 4 19l2.3-.6 2.1 1.2L9 22h4l.6-2.4 2.1-1.2 2.3.6 2-3.5-1.7-1.8v-2.4L20 9.5 18 6l-2.3.6-2.1-1.2L13 3Z" />
+            <circle cx="11" cy="12.5" r="3" />
+          </svg>
+        </button>
+      </div>
+      {enabled && (error || !RecognitionAPI || !microphoneEnabled) && <button className="subtitle-status" onClick={() => setSettingsOpen(true)}>
+        {error ? 'Speech unavailable' : !RecognitionAPI ? 'Viewing only' : 'Mic muted'}
+      </button>}
       {settingsOpen && <section aria-label="Subtitle settings" className="subtitle-settings">
         <div className="flex items-center justify-between gap-3">
           <strong>Live subtitles</strong>
           <button type="button" aria-label="Close subtitle settings" title="Close subtitle settings" onClick={closeSettings}>×</button>
         </div>
-        <label><input type="checkbox" checked={visible} onChange={event => setVisible(event.target.checked)} /> Show subtitles</label>
         <label>Text size: {size}px<input aria-label="Subtitle text size" type="range" min="16" max="40" step="2" value={size} onChange={event => {
           const next = Number(event.target.value); setSize(next);
           try { localStorage.setItem('maketogether.subtitleSize', String(next)); } catch { /* Storage is optional. */ }
         }} /></label>
         <div className="subtitle-preview" style={{ fontSize: size }}>Your name: Hello!</div>
-        <button aria-pressed={sharing} disabled={!RecognitionAPI} onClick={() => { setError(''); setSharing(value => !value); }}>
-          {sharing ? 'Stop sharing my captions' : 'Share my speech as captions'}
-        </button>
-        <p>{!RecognitionAPI ? 'This browser cannot transcribe speech. You can still view shared captions.' : sharing && !microphoneEnabled ? 'Captions paused — unmute your microphone to continue.' : 'Each speaker must opt in. Your browser may process speech online; captions are shared with this room.'}</p>
-        {error && <p role="alert">{error}</p>}
+        <p>{!RecognitionAPI ? 'This browser cannot transcribe speech. You can still view shared captions.' : enabled && !microphoneEnabled ? 'Captions paused — unmute your microphone to continue.' : 'Turn CC on to show captions and share your speech with this room. Each speaker must enable CC. Your browser may process speech online.'}</p>
+        {error && <>
+          <p role="alert">{error}</p>
+          <button onClick={() => { setError(''); setRetry(value => value + 1); }}>Retry speech recognition</button>
+        </>}
       </section>}
     </div>
-    {visible && <div className="live-subtitles" role="region" aria-label="Live subtitles" style={{ fontSize: size }}>
-      {Object.entries(cues).filter(([id, text]) => text && (id !== 'local' || (sharing && microphoneEnabled))).slice(-4).map(([id, text]) =>
+    {enabled && <div className="live-subtitles" role="region" aria-label="Live subtitles" style={{ fontSize: size }}>
+      {Object.entries(cues).filter(([id, text]) => text && (id !== 'local' || (enabled && microphoneEnabled))).slice(-4).map(([id, text]) =>
         <div key={id} className="subtitle-cue"><span>{nameFor(id)}: {text}</span></div>)}
     </div>}
   </>;

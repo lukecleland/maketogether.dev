@@ -22,7 +22,11 @@ test('captions use dock names, resize, expire, and stop on mute', async ({ page,
   await page.goto('/');
   await page.getByRole('button', { name: 'Start Session', exact: true }).click();
   await page.getByRole('button', { name: 'Subtitle settings', exact: true }).click();
-  await page.getByRole('button', { name: 'Share my speech as captions', exact: true }).click();
+  const cc = page.getByRole('button', { name: 'Closed captions', exact: true });
+  await expect(cc).toHaveAttribute('aria-pressed', 'false');
+  await cc.click();
+  await expect(cc).toHaveAttribute('aria-pressed', 'true');
+  await expect(cc).toHaveCSS('background-color', 'rgb(124, 58, 237)');
   await expect(page.getByText('Captions paused — unmute your microphone to continue.')).toBeVisible();
   await page.getByRole('button', { name: 'Unmute microphone', exact: true }).click({ timeout: 5000 });
   await expect.poll(() => page.evaluate(() => window.recognition?.running)).toBe(true);
@@ -38,9 +42,11 @@ test('captions use dock names, resize, expire, and stop on mute', async ({ page,
   await expect(subtitles).toHaveCSS('font-size', '32px');
   await expect(subtitles.locator('span')).toHaveCSS('background-color', 'rgb(0, 0, 0)');
   await expect(subtitles).toHaveCSS('color', 'rgb(255, 255, 255)');
-  await page.getByRole('checkbox', { name: 'Show subtitles' }).uncheck();
+  await cc.click();
+  await expect.poll(() => page.evaluate(() => window.recognition.running)).toBe(false);
   await expect(subtitles).toHaveCount(0);
-  await page.getByRole('checkbox', { name: 'Show subtitles' }).check();
+  await cc.click();
+  await expect.poll(() => page.evaluate(() => window.recognition.running)).toBe(true);
   await page.getByRole('button', { name: 'Close subtitle settings', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Subtitle settings', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Subtitle settings', exact: true })).toBeFocused();
@@ -59,6 +65,18 @@ test('captions use dock names, resize, expire, and stop on mute', async ({ page,
   await page.getByRole('button', { name: 'Mute microphone', exact: true }).click();
   await expect(subtitles).toHaveText('');
   await expect.poll(() => page.evaluate(() => window.recognition.running)).toBe(false);
+  await expect(cc).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('button', { name: 'Mic muted', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Unmute microphone', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.recognition.running)).toBe(true);
+  await speak('Resumed after mute');
+  await expect(subtitles).toHaveText('Alex: Resumed after mute');
+  await page.evaluate(() => window.recognition.onerror({ error: 'network' }));
+  await page.getByRole('button', { name: 'Speech unavailable', exact: true }).click();
+  await expect(page.getByRole('alert')).toContainText('Speech recognition is unavailable');
+  await page.getByRole('button', { name: 'Retry speech recognition' }).click();
+  await speak('Recovered captions');
+  await expect(subtitles).toHaveText('Alex: Recovered captions');
 });
 
 test('shared captions arrive on another device with the edited speaker name', async ({ browser }) => {
@@ -78,6 +96,7 @@ test('shared captions arrive on another device with the edited speaker name', as
     await pages[0].getByRole('button', { name: 'Start Session', exact: true }).click();
     await pages[1].goto(pages[0].url());
     await expect(pages[1].getByText('Connected · 2/4', { exact: true })).toBeVisible();
+    await pages[1].getByRole('button', { name: 'Closed captions', exact: true }).click();
     await pages[0].evaluate(() => {
       const peer = [...window.testPeers][0];
       for (const connection of peer.connections.values()) {
