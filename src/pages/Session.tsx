@@ -1,3 +1,4 @@
+import { LiveSubtitles } from '../components/LiveSubtitles';
 import { useVisibleViewport } from '../hooks/useVisibleViewport';
 import { DRAWING_VIEWPORT, convertDrawing, migrateDrawingCoordinates } from '../utils/drawingCoordinates';
 import { framePanel, transformGesture } from '../utils/canvasViewport';
@@ -3153,6 +3154,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 			</div>
 
 			</PanelOverviewContext.Provider>
+			<LiveSubtitles connection={dataConnection} microphoneEnabled={microphoneEnabled} labels={customLabels} participants={remoteStreams} />
 			<CanvasSystemControls overview={overviewOpen} onFit={fitScreen} onShowAll={() => setOverviewOpen(open => !open)} />
 			{/* Dock — fixed overlay above the canvas; shortcuts back to docked panels */}
 			<Dock entries={dockEntries} onJump={jumpToPanel} onRemove={removeDockEntry} onRename={renameDockEntry} onPing={pingDockEntry} onParticipantDoubleClick={handleParticipantDoubleClick} />

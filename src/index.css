@@ -588,3 +588,22 @@ input, textarea, [contenteditable="true"] { -webkit-user-select: text; user-sele
     width: 26px; height: 26px; min-height: 26px; padding: 5px; border-radius: 5px;
   }
 }
+
+/* Viewport subtitles stay readable independently of canvas zoom. */
+.subtitle-controls { position: fixed; z-index: 1204; right: 12px; bottom: calc(86px + env(safe-area-inset-bottom)); }
+.subtitle-controls > button { background: #27272a; color: white; border: 1px solid #71717a; border-radius: 6px; padding: 6px 10px; font-weight: 700; }
+.subtitle-settings { position: absolute; right: 0; bottom: 42px; width: min(300px, calc(100vw - 24px)); max-height: 65dvh; overflow: auto; display: grid; gap: 12px; padding: 16px; border: 1px solid #52525b; border-radius: 12px; background: #18181b; color: white; font-size: 14px; box-shadow: 0 8px 30px #0008; }
+.subtitle-settings label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.subtitle-settings input[type="range"] { width: 100%; }
+.subtitle-settings button { background: #3f3f46; border-radius: 6px; padding: 8px; }
+.subtitle-settings button:disabled { opacity: .5; }
+.subtitle-settings p { color: #d4d4d8; font-size: 12px; line-height: 1.5; }
+.subtitle-preview { background: #000; color: #fff; padding: 6px; overflow-wrap: anywhere; line-height: 1.35; }
+.live-subtitles { position: fixed; z-index: 1202; pointer-events: none; left: 50%; transform: translateX(-50%); bottom: calc(140px + env(safe-area-inset-bottom)); width: min(80vw, 900px); max-height: 45dvh; overflow: hidden; display: flex; flex-direction: column; justify-content: end; gap: 6px; text-align: center; font-family: Arial, Helvetica, sans-serif; font-weight: 500; line-height: 1.35; color: #fff; }
+.subtitle-cue { overflow-wrap: anywhere; }
+.subtitle-cue span { background: #000; padding: .12em .35em; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+@media (max-width: 900px) {
+  .subtitle-controls { right: calc(var(--visible-right, 0px) + 12px); bottom: calc(var(--visible-bottom, 0px) + 48px + env(safe-area-inset-bottom)); }
+  .subtitle-settings { width: min(300px, calc(var(--visible-width, 100vw) - 24px)); max-height: max(60px, calc(var(--visible-height, 100dvh) - 150px)); }
+  .live-subtitles { left: calc(var(--visible-left, 0px) + var(--visible-width, 100vw) / 2); width: calc(var(--visible-width, 100vw) - 32px); bottom: calc(var(--visible-bottom, 0px) + 96px + env(safe-area-inset-bottom)); max-height: calc(var(--visible-height, 100dvh) * .4); }
+}
