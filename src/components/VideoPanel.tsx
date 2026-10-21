@@ -175,7 +175,7 @@ export function VideoPanel({
                 </svg>
               </div>
               <p className="text-xs">
-                {label === "You" ? "Starting camera…" : "Waiting for guest…"}
+                {label === "You" ? "Camera off" : "Camera unavailable"}
               </p>
             </div>
           </div>

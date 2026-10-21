@@ -206,3 +206,14 @@ test('received room snapshots map all AV windows to the joining participant with
   assert.deepEqual(snapshot.remotePanels, { maker: hostCard, third: thirdCard });
   guest.cleanup();
 });
+
+test('participants remain visible when media is unavailable or a call fails', () => {
+  const client = participant('maker', true, true);
+  client.capability(false);
+  const visible = () => client.state.filter(value => Array.isArray(value) && value.some(item => item?.peerId === '1-guest')).at(-1);
+  assert.equal(visible()[0].stream, null);
+  client.advance(200_000);
+  assert.equal(visible()[0].peerId, '1-guest');
+  assert.equal(visible()[0].stream, null);
+  client.cleanup();
+});

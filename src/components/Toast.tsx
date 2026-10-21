@@ -19,20 +19,22 @@ interface ToastProps {
   onDismiss?: () => void;
   action?: { label: string; onClick: () => void };
   status?: boolean;
+  persistent?: boolean;
 }
 
 export function Toast(props: ToastProps) {
   return props.message ? <TimedToast key={props.message} {...props} /> : null;
 }
 
-function TimedToast({ message, label, onDismiss, action, status }: ToastProps) {
+function TimedToast({ message, label, onDismiss, action, status, persistent }: ToastProps) {
   const target = useContext(ToastTarget);
   const [visible, setVisible] = useState(true);
   const expire = useEffectEvent(() => { setVisible(false); onDismiss?.(); });
   useEffect(() => {
+    if (persistent) return;
     const timer = setTimeout(() => expire(), 10_000);
     return () => clearTimeout(timer);
-  }, []);
+  }, [persistent]);
   if (!target || !visible) return null;
   return createPortal(<div data-canvas-chrome role={status ? 'status' : 'alert'} aria-label={label}
     onPointerDown={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}
