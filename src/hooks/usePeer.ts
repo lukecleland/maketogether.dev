@@ -8,7 +8,7 @@ export type PeerStatus = "idle" | "connecting" | "waiting" | "connected" | "erro
 
 export interface RemotePeerStream {
   peerId: string;
-  stream: MediaStream;
+  stream: MediaStream | null;
 }
 
 /**
@@ -243,6 +243,7 @@ export function usePeer({
   const [error, setError] = useState<string | null>(null);
 
   const [mediaStatus, setMediaStatus] = useState<string | null>(null);
+  const refreshMediaRef = useRef<() => void>(() => {});
   const retryMediaRef = useRef<() => void>(() => {});
   const retryMedia = useCallback(() => retryMediaRef.current(), []);
 
@@ -260,6 +261,7 @@ export function usePeer({
       else if (track) call.close();
     }
     await Promise.all(replacements);
+    refreshMediaRef.current();
   }, []);
 
   useEffect(() => {
@@ -296,12 +298,13 @@ export function usePeer({
 
     const publishStreams = () => {
       setRemoteStreams(
-        [...streams.entries()].map(([peerId, stream]) => ({ peerId, stream })),
+        mesh.peers().map(peerId => ({ peerId, stream: streams.get(peerId) ?? null })),
       );
     };
 
     const publishConnectionState = () => {
       setParticipantCount(mesh.peers().length + 1);
+      publishStreams();
       if (mesh.open) {
         setDataConnection(mesh);
         setStatus("connected");
@@ -696,11 +699,22 @@ export function usePeer({
       }
       publishMediaStatus();
     };
+    refreshMediaRef.current = () => {
+      const peer = peerRef.current;
+      if (!active || !peer) return;
+      for (const id of mesh.peers()) {
+        dataConnections.get(id)?.send({ __watchTogether: "media-capabilities", canSendMedia: hasMedia() } satisfies MeshControl);
+        attempts.delete(id);
+        scheduleCall(peer, id);
+      }
+      publishMediaStatus();
+    };
     createPeer(role);
 
     return () => {
       active = false;
       retryMediaRef.current = () => {};
+      refreshMediaRef.current = () => {};
       clearTransition();
       if (signalingTimer) clearTimeout(signalingTimer);
       clearMesh();

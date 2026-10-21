@@ -135,3 +135,39 @@ export async function loadRoomMedia(roomCode: string, panelId: string, recording
   db.close();
   return result;
 }
+
+// A separate key survives normal autosaves and refreshes after a conflicting join.
+const recoveryKey = (roomCode: string) => `${roomKey(roomCode)}:recovery`;
+
+export function loadRoomRecovery(roomCode: string): RoomSnapshot | null {
+  try {
+    const value = JSON.parse(localStorage.getItem(recoveryKey(roomCode)) ?? 'null') as RoomSnapshot | null;
+    return value?.version === ROOM_STATE_VERSION ? value : null;
+  } catch { return null; }
+}
+
+function roomContent(snapshot: RoomSnapshot): string {
+  // Camera positions, viewport changes and playback clocks are not lost work.
+  return JSON.stringify({
+    panels: snapshot.panels.map(({ state, playback, ...panel }) => {
+      void state; void playback;
+      return panel;
+    }).sort((a, b) => a.id.localeCompare(b.id)),
+    drawings: snapshot.drawings,
+    positionTags: snapshot.positionTags,
+    connectors: snapshot.connectors ?? [],
+  });
+}
+
+export function preserveRoomRecovery(roomCode: string, local: RoomSnapshot, incoming: RoomSnapshot): RoomSnapshot | null {
+  if (roomContent(local) === roomContent(incoming)) return null;
+  // Do not replace a previously preserved copy with the stale host's autosave.
+  const recovery = loadRoomRecovery(roomCode) ?? local;
+  try { localStorage.setItem(recoveryKey(roomCode), JSON.stringify(recovery)); }
+  catch { /* The in-memory recovery remains available if storage is full. */ }
+  return recovery;
+}
+
+export function clearRoomRecovery(roomCode: string): void {
+  try { localStorage.removeItem(recoveryKey(roomCode)); } catch { /* Storage is optional. */ }
+}

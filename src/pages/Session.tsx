@@ -71,7 +71,7 @@ import { TransferReceiver, base64ToChunk, chunkCount, sendFileInChunks } from '.
 import { codeFromText } from '../utils/code';
 import { prepareImage } from '../utils/image';
 import { parseRoomBundle, serialiseRoomBundle } from '../utils/roomBundle';
-import { loadRoomMedia, loadRoomSnapshot, ROOM_STATE_VERSION, saveRoomMedia, saveRoomSnapshot, type PersistedConnector, type RoomSnapshot } from '../utils/roomPersistence';
+import { loadRoomMedia, loadRoomSnapshot, loadRoomRecovery, preserveRoomRecovery, clearRoomRecovery, ROOM_STATE_VERSION, saveRoomMedia, saveRoomSnapshot, type PersistedConnector, type RoomSnapshot } from '../utils/roomPersistence';
 
 interface SessionProps {
 	roomCode: string;
@@ -204,6 +204,7 @@ function parseYouTubeVideoId(input: string): string | null {
 export function Session({ roomCode, isHost }: SessionProps) {
 	useVisibleViewport();
 	const [savedRoom] = useState(() => { const saved = loadRoomSnapshot(roomCode); return saved ? migrateDrawingCoordinates(saved) : null; });
+	const [roomRecovery, setRoomRecovery] = useState(() => loadRoomRecovery(roomCode));
 	const [localStream, setLocalStream] = useState<MediaStream | null>(null);
 	const [microphoneEnabled, setMicrophoneEnabled] = useState(false);
 	const [cameraEnabled, setCameraEnabled] = useState(false);
@@ -430,6 +431,14 @@ export function Session({ roomCode, isHost }: SessionProps) {
 		return () => { cancelled = true; };
 	}, [roomCode, savedRoom, savedRoom?.panels]);
 
+	const flushRoomSnapshot = useCallback(() => {
+		const snapshot = latestSnapshotRef.current;
+		if (snapshot) saveRoomSnapshot(roomCode, {
+			...snapshot,
+			drawings: whiteboardRef.current?.getItems() ?? snapshot.drawings,
+		});
+	}, [roomCode]);
+
 	useEffect(() => {
 		const snapshot: RoomSnapshot = {
 			version: ROOM_STATE_VERSION,
@@ -466,7 +475,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 			canvas
 		};
 		latestSnapshotRef.current = snapshot;
-		const saveTimer = setTimeout(() => saveRoomSnapshot(roomCode, snapshot), 250);
+		const saveTimer = setTimeout(flushRoomSnapshot, 250);
 		dynamicPanels.forEach(panel => {
 			if (panel.initialFile && !persistedMediaRef.current.has(panel.initialFile)) {
 				persistedMediaRef.current.add(panel.initialFile);
@@ -479,7 +488,18 @@ export function Session({ roomCode, isHost }: SessionProps) {
 			});
 		});
 		return () => clearTimeout(saveTimer);
-	}, [canvas, connectors, customLabels, dockedIds, dynamicPanels, fixedPanels, panelLabels, positionTags, remotePanelStates, roomCode, savedRoom?.drawings, savedRoom?.panels, whiteboardRevision]);
+	}, [flushRoomSnapshot, canvas, connectors, customLabels, dockedIds, dynamicPanels, fixedPanels, panelLabels, positionTags, remotePanelStates, roomCode, savedRoom?.drawings, savedRoom?.panels, whiteboardRevision]);
+
+	useEffect(() => {
+		const onVisibility = () => { if (document.hidden) flushRoomSnapshot(); };
+		window.addEventListener('pagehide', flushRoomSnapshot);
+		document.addEventListener('visibilitychange', onVisibility);
+		return () => {
+			flushRoomSnapshot();
+			window.removeEventListener('pagehide', flushRoomSnapshot);
+			document.removeEventListener('visibilitychange', onVisibility);
+		};
+	}, [flushRoomSnapshot]);
 
 	const { remoteStreams, dataConnection, participantCount, connectionRevision, status, error, mediaStatus, retryMedia, replaceVideoTrack } = usePeer({
 		roomCode,
@@ -511,9 +531,8 @@ export function Session({ roomCode, isHost }: SessionProps) {
 	// the canvas there is always a chip back to the faces. Purely local — each
 	// side seeds its own chips, so nothing travels and nothing pulses.
 	useEffect(() => {
-		// Guarded on tracks like the panel itself: someone who joined without
-		// media has no "You" panel, so a chip to it would jump to empty canvas.
-		if (localStream && localStream.getTracks().length > 0) {
+		// Keep camera controls reachable even when no device is available.
+		if (localStream) {
 			setDockedIds(prev => (prev.includes('local') ? prev : [...prev, 'local']));
 		}
 	}, [localStream]);
@@ -755,6 +774,11 @@ export function Session({ roomCode, isHost }: SessionProps) {
 		}
 		if (msg.type === 'room-state-snapshot') {
 			if (!roomSnapshotReceivedRef.current && (msg.requestId === undefined || msg.requestId === roomRequestIdRef.current) && sourcePeerId === roomCode.toLowerCase()) {
+				const local = latestSnapshotRef.current;
+				if (local && (savedRoom || local.panels.length || local.drawings.length || local.positionTags.length)) {
+					const recovery = preserveRoomRecovery(roomCode, { ...local, drawings: whiteboardRef.current?.getItems() ?? local.drawings }, msg.snapshot);
+					if (recovery) setRoomRecovery(recovery);
+				}
 				roomSnapshotReceivedRef.current = true;
 				applyRoomSnapshot(msg.snapshot);
 			}
@@ -1007,7 +1031,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 			setConnectors([]);
 			markWhiteboardDirty();
 		}
-	}, [applyPortableSnapshot, applyRoomSnapshot, following, forgetPanel, roomCode, markWhiteboardDirty, noteRemoteZ, presentationInvite, presentingId, startPulse]);
+	}, [applyPortableSnapshot, applyRoomSnapshot, following, forgetPanel, roomCode, savedRoom, markWhiteboardDirty, noteRemoteZ, presentationInvite, presentingId, startPulse]);
 
 	// We use useYouTubeSync here to route panel-update and whiteboard messages.
 	// YoutubeWidget mounts its own useYouTubeSync instance for YT playback messages.
@@ -1740,7 +1764,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 	const fitScreen = () => {
 		setOverviewOpen(false);
 		const bounds: Array<{ x: number; y: number; width: number; height: number }> = [];
-		if (localStream?.getTracks().length) bounds.push(fixedPanels.local);
+		if (localStream) bounds.push(fixedPanels.local);
 		bounds.push(...Object.values(remotePanelStates), ...dynamicPanels.map(panel => panel.state));
 		positionTags.forEach(tag => bounds.push({ x: tag.x, y: tag.y, width: tag.w ?? 1, height: tag.h ?? 1 }));
 		for (const item of whiteboardRef.current?.getItems() ?? []) {
@@ -1770,7 +1794,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 	};
 
 	const overviewItems = [
-		...(localStream?.getTracks().length ? [{ id: 'local', label: customLabels.local ?? 'You', ...fixedPanels.local }] : []),
+		...(localStream ? [{ id: 'local', label: customLabels.local ?? 'You', ...fixedPanels.local }] : []),
 		...remoteStreams.flatMap(({ peerId }, index) => remotePanelStates[peerId] ? [{ id: remotePanelId(peerId), label: customLabels[remotePanelId(peerId)] ?? `Guest ${index + 1}`, ...remotePanelStates[peerId] }] : []),
 		...dynamicPanels.map(panel => ({ id: panel.id, label: customLabels[panel.id] ?? panelLabels[panel.id] ?? fallbackLabel(panel), ...panel.state })),
 	];
@@ -1982,7 +2006,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 	}, []);
 	const toggleMicrophone = useCallback(() => {
 		const tracks = localStream?.getAudioTracks() ?? [];
-		if (!tracks.length) return;
+		if (!tracks.length) { setMediaError('Microphone unavailable. Retry camera / microphone to request access.'); return; }
 		const enabled = !tracks.some(track => track.enabled);
 		tracks.forEach(track => { track.enabled = enabled; });
 		setMicrophoneEnabled(enabled);
@@ -2753,6 +2777,15 @@ export function Session({ roomCode, isHost }: SessionProps) {
 			<Toast message={screenShare.error} label="Screen sharing error" />
 			<Toast message={mediaError} label="Camera or microphone error" onDismiss={() => setMediaError(null)}
 				action={{ label: 'Retry camera / microphone', onClick: () => { setMediaError(null); setMediaRetryKey(key => key + 1); } }} />
+			<Toast persistent message={roomRecovery ? 'This device had a different saved room. Its copy is preserved. Restoring it replaces the shared room for everyone.' : null}
+				label="Saved room recovery"
+				action={{ label: 'Restore saved room for everyone', onClick: () => {
+					if (!roomRecovery) return;
+					applyPortableSnapshot(roomRecovery);
+					sendSync({ type: 'room-state-import', snapshot: roomRecovery });
+					clearRoomRecovery(roomCode);
+					setRoomRecovery(null);
+				} }} />
 			<Toast message={mediaStatus} label="Audio/video connection" status action={{ label: 'Retry audio/video connection', onClick: retryMedia }} />
 			{recorderErrors.map(message => <Toast key={message} message={message} label="Recording warning" />)}
 			{anyRecorderActive && (
@@ -2935,7 +2968,7 @@ export function Session({ roomCode, isHost }: SessionProps) {
 					</div>
 					)
 				)}
-				{localStream && localStream.getTracks().length > 0 && (
+				{localStream && (
 					<DraggablePanel panelId="local" minimized={minimizedIds.includes('local')} onMinimize={() => minimizePanel('local')} minimizeControlHandled state={fixedPanels.local} {...makePanelHandlers('local')} onToggleDock={() => toggleDock('local')} minWidth={200} minHeight={120} scale={canvas.scale} className="z-10">
 						{zoomTagHandle('local', 'You')}
 						{/* No onToggleDock: participants are permanently docked, so a
